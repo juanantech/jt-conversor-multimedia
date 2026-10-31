@@ -1,6 +1,8 @@
 @echo off
 rem Compila "JT Conversor Multimedia.exe" en dist\  (requiere Python 3.10-3.15 de python.org)
 setlocal
+rem Si se lanza desde PowerShell 7, su PSModulePath rompe los cmdlets de Windows PowerShell 5.1
+set "PSModulePath="
 cd /d "%~dp0"
 if not defined PY (where py >nul 2>&1 && set "PY=py -3" || set "PY=python")
 if not exist .venv\Scripts\python.exe %PY% -m venv .venv || goto :error
