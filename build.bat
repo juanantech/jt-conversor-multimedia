@@ -7,9 +7,10 @@ cd /d "%~dp0"
 if not defined PY (where py >nul 2>&1 && set "PY=py -3" || set "PY=python")
 if not exist .venv\Scripts\python.exe %PY% -m venv .venv || goto :error
 .venv\Scripts\python -m pip install --disable-pip-version-check --require-hashes -r requirements.txt || goto :error
-if not exist ffmpeg\ffmpeg.exe powershell -NoProfile -ExecutionPolicy Bypass -File get-ffmpeg.ps1 || goto :error
+powershell -NoProfile -ExecutionPolicy Bypass -File get-deps.ps1 || goto :error
 .venv\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name "JT Conversor Multimedia" ^
-  --icon assets\icon.ico --add-data "assets;assets" --add-binary "ffmpeg\ffmpeg.exe;ffmpeg" main.py || goto :error
+  --icon assets\icon.ico --add-data "assets;assets" --add-binary "ffmpeg\ffmpeg.exe;ffmpeg" ^
+  --add-data "libreoffice.zip;." --collect-data numbers_parser main.py || goto :error
 echo.
 echo Listo: dist\JT Conversor Multimedia.exe
 exit /b 0

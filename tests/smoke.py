@@ -1,4 +1,4 @@
-"""Prueba de humo: crea un clip y lo convierte a todos los formatos, primero con FFmpeg y luego con la interfaz."""
+"""Prueba de humo: convierte un clip a todos los formatos con FFmpeg y, con la interfaz, a MP3 y a cada documento."""
 import os
 import subprocess
 import sys
@@ -10,7 +10,22 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from main import FFMPEG, FORMATS, Window, command, ext, probe  # noqa: E402
+from main import DOCS, FFMPEG, FORMATS, Window, command, ext, probe  # noqa: E402
+
+NS = ('xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+      'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+      'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+      'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"')
+FLAT = {  # documentos de prueba en ODF plano: texto, hoja de cálculo y presentación
+    "fodt": ("text", "<office:text><text:p>Hola JUANAN TECH</text:p></office:text>"),
+    "fods": ("spreadsheet", '<office:spreadsheet><table:table table:name="Datos"><table:table-row>'
+             '<table:table-cell office:value-type="float" office:value="42"><text:p>42</text:p></table:table-cell>'
+             "</table:table-row></table:table></office:spreadsheet>"),
+    "fodp": ("presentation", '<office:presentation><draw:page draw:name="1"><draw:frame svg:x="2cm" svg:y="2cm" '
+             'svg:width="10cm" svg:height="3cm"><draw:text-box><text:p>Hola</text:p></draw:text-box></draw:frame>'
+             "</draw:page></office:presentation>"),
+}
 
 with tempfile.TemporaryDirectory() as tmp:
     src = Path(tmp, "-prueba ñ.mkv")  # nombre que empieza por «-»: no debe confundirse con una opción
@@ -29,13 +44,30 @@ with tempfile.TemporaryDirectory() as tmp:
 
     app = QApplication([])
     w = Window()
-    w.add([src])
     w.out_dir = tmp
-    next(b for b in w.group.buttons() if b.text() == "MP3").setChecked(True)
-    w.toggle()
-    end = time.time() + 120
-    while w.go.text() == "Cancelar" and time.time() < end:
-        app.processEvents()
-        time.sleep(0.05)
-    assert w.ok == 1 and Path(tmp, "-prueba ñ.mp3").is_file(), w.list.item(0).toolTip()
-    print("OK interfaz")
+
+    def run(path, fmt):
+        """Convierte un archivo con la interfaz, como lo haría el usuario."""
+        w.list.clear()
+        w.add([path])
+        next(b for b in w.group.buttons() if b.text() == fmt).setChecked(True)
+        w.toggle()
+        end = time.time() + 600
+        while w.go.text() == "Cancelar" and time.time() < end:
+            app.processEvents()
+            time.sleep(0.05)
+        assert w.ok == 1, (fmt, w.list.item(0).toolTip())
+        print("OK interfaz", fmt)
+
+    run(src, "MP3")
+    for e, (kind, body) in FLAT.items():
+        Path(tmp, f"doc.{e}").write_text(f'<?xml version="1.0" encoding="UTF-8"?><office:document {NS} '
+                                         f'office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.'
+                                         f'{kind}"><office:body>{body}</office:body></office:document>', "utf-8")
+    for fmt in DOCS:
+        family = "fods" if fmt in ("XLSX", "XLS", "ODS", "CSV", "NUMBERS") else "fodp" if fmt in ("PPTX", "PPT", "ODP") else "fodt"
+        run(Path(tmp, f"doc.{family}"), fmt)
+
+    from numbers_parser import Document
+    assert Document(str(Path(tmp, "doc.numbers"))).sheets[0].tables[0].cell(0, 0).value == 42
+    print("OK Numbers legible")

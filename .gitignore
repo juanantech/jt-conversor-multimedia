@@ -4,3 +4,4 @@ dist/
 ffmpeg/
 *.spec
 __pycache__/
+/libreoffice.zip

@@ -2,10 +2,14 @@
 
 Convierte vídeo, audio e imagen con FFmpeg a la máxima calidad: copia sin pérdida cuando el códec ya encaja
 en el formato de destino y, si no, recodifica con ajustes visual/auditivamente sin pérdida.
+Los documentos se convierten con un LibreOffice integrado (sin instalar), que se descomprime la primera vez.
 """
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, Qt
@@ -17,6 +21,11 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QFileDialog, QGridLay
 BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 FFMPEG = str(BASE / "ffmpeg" / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"))
 SAFE = ["-hide_banner", "-nostdin", "-protocol_whitelist", "file"]  # solo archivos locales: nada de red
+LO_ZIP = BASE / "libreoffice.zip"  # LibreOffice 26.2.6 empaquetado por build.bat
+CACHE = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "JT Conversor Multimedia"
+LO_DIR = CACHE / "LibreOffice-26.2.6"
+SOFFICE = str(LO_DIR / "program" / "soffice.com") if LO_ZIP.exists() else shutil.which("soffice") or "soffice"
+TAR = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "tar.exe")
 
 
 class _Any:  # MKV admite prácticamente cualquier códec
@@ -82,12 +91,23 @@ FORMATS = {
     "XBM": img("xbm"),
     "XWD": img("xwd"),
 }
+# documento: formato de exportación de LibreOffice (NUMBERS pasa por XLSX y luego por numbers-parser)
+DOCS = {
+    "DOCX": "docx", "DOC": "doc", "ODT": "odt", "RTF": "rtf", "TXT": "txt:Text (encoded):UTF8", "HTML": "html",
+    "EPUB": "epub", "PDF": "pdf", "XLSX": "xlsx", "XLS": "xls", "ODS": "ods",
+    "CSV": "csv:Text - txt - csv (StarCalc):44,34,76", "NUMBERS": "xlsx", "PPTX": "pptx", "PPT": "ppt", "ODP": "odp",
+}
+PDF_IN = {**dict.fromkeys(("DOCX", "DOC", "ODT", "RTF"), "writer_pdf_import"),
+          **dict.fromkeys(("PPTX", "PPT", "ODP"), "impress_pdf_import")}  # cómo abrir un PDF según el destino
+APPROX = (".pages", ".key", ".numbers", ".pdf")  # orígenes cuya conversión es aproximada
 EXT = {"H.265": "mp4", "ProRes": "mov", "ALAC": "m4a"}  # formatos cuyo botón no coincide con la extensión
 MP4_FAMILY = (".mp4", ".mov", ".m4v", ".m4a", ".3gp")
 EXTS = ("*.mp4 *.mkv *.avi *.mov *.webm *.wmv *.flv *.f4v *.m4v *.mpg *.mpeg *.vob *.ts *.mts *.m2ts *.mxf *.3gp *.ogv "
         "*.asf *.rm *.rmvb *.divx *.gif *.mp3 *.m4a *.m4b *.aac *.wav *.flac *.ogg *.opus *.wma *.aif *.aiff *.ac3 "
         "*.dts *.amr *.ape *.wv *.mka *.caf *.mp2 *.jpg *.jpeg *.png *.webp *.avif *.bmp *.tif *.tiff *.ico *.jp2 "
-        "*.tga *.qoi *.ppm *.pgm *.pbm *.pam *.hdr *.exr *.dpx *.pcx *.sgi *.ras *.xbm *.xwd *.heic *.heif *.psd *.dds")
+        "*.tga *.qoi *.ppm *.pgm *.pbm *.pam *.hdr *.exr *.dpx *.pcx *.sgi *.ras *.xbm *.xwd *.heic *.heif *.psd *.dds "
+        "*.doc *.docx *.docm *.dotx *.odt *.ott *.rtf *.txt *.htm *.html *.pdf *.xls *.xlsx *.xlsm *.ods *.csv *.numbers "
+        "*.ppt *.pptx *.pps *.ppsx *.odp *.key *.pages *.wps *.wpd *.fodt *.fods *.fodp")
 
 
 def ext(fmt):
@@ -95,8 +115,36 @@ def ext(fmt):
 
 
 def kind(fmt):
+    if fmt in DOCS:
+        return "Documento"
     v = FORMATS[fmt]
     return "Audio" if v[1] is None else "Imagen" if v[3] is None else "Vídeo"
+
+
+def doc_command(src, fmt, outdir):
+    """Argumentos de LibreOffice: sin interfaz y con un perfil propio que bloquea macros y enlaces externos."""
+    infilter = [f"--infilter={PDF_IN[fmt]}"] if src.lower().endswith(".pdf") and fmt in PDF_IN else []
+    return [f"-env:UserInstallation={(CACHE / 'perfil').as_uri()}", "--headless", "--norestore", "--nologo",
+            "--nodefault", "--nolockcheck", *infilter, "--convert-to", DOCS[fmt], "--outdir", str(outdir), src]
+
+
+def to_numbers(xlsx, dst):
+    """Pasa los valores de cada hoja de un XLSX a un documento de Apple Numbers."""
+    from numbers_parser import Document
+    from openpyxl import load_workbook
+    wb, doc = load_workbook(xlsx, read_only=True, data_only=True), Document()
+    for i, ws in enumerate(wb.worksheets):
+        if i:
+            doc.add_sheet(ws.title)
+        else:
+            doc.sheets[0].name = ws.title
+        table = doc.sheets[i].tables[0]
+        for r, row in enumerate(ws.iter_rows(values_only=True)):
+            for c, value in enumerate(row):
+                if value is not None:
+                    table.write(r, c, value)
+    wb.close()
+    doc.save(str(dst))
 
 
 def probe(src):
@@ -169,7 +217,7 @@ class Window(QWidget):
     def __init__(self):
         super().__init__(objectName="root", windowTitle="JT Conversor Multimedia", acceptDrops=True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # para que se pinte el fondo navy del QSS
-        self.resize(1000, 640)
+        self.resize(1000, 700)
         self.out_dir, self.queue, self.proc, self.cancelled = None, [], None, False
         icon = QIcon(str(BASE / "assets" / "icon.png"))
         self.setWindowIcon(icon)
@@ -177,7 +225,7 @@ class Window(QWidget):
         logo = QLabel(pixmap=icon.pixmap(56, 56))
         titles = QVBoxLayout(spacing=0)
         titles.addWidget(QLabel("JT Conversor Multimedia", objectName="title"))
-        titles.addWidget(QLabel("by JUANAN TECH · vídeo, audio e imagen a calidad máxima", objectName="muted"))
+        titles.addWidget(QLabel("by JUANAN TECH · vídeo, audio, imagen y documentos a calidad máxima", objectName="muted"))
         header = QHBoxLayout()
         header.addWidget(logo)
         header.addLayout(titles, 1)
@@ -193,9 +241,9 @@ class Window(QWidget):
         files.addStretch()
 
         self.group, grid, row = QButtonGroup(self), QGridLayout(), 0
-        for label in ("Vídeo", "Audio", "Imagen"):
+        for label in ("Vídeo", "Audio", "Imagen", "Documento"):
             grid.addWidget(QLabel(label, objectName="muted"), row, 0)
-            fmts = [f for f in FORMATS if kind(f) == label]
+            fmts = [f for f in (*FORMATS, *DOCS) if kind(f) == label]
             for i, fmt in enumerate(fmts):  # 11 botones por fila
                 b = QPushButton(fmt, checkable=True)
                 self.group.addButton(b)
@@ -219,7 +267,7 @@ class Window(QWidget):
         root = QVBoxLayout(self, spacing=12)
         root.setContentsMargins(20, 18, 20, 18)
         root.addLayout(header)
-        root.addWidget(QLabel("Arrastra aquí tus vídeos, audios o imágenes, o pulsa «Añadir archivos».", objectName="muted"))
+        root.addWidget(QLabel("Arrastra aquí tus vídeos, audios, imágenes o documentos, o pulsa «Añadir archivos».", objectName="muted"))
         root.addWidget(self.list, 1)
         for part in (files, grid, dest, bottom):
             root.addLayout(part)
@@ -236,7 +284,7 @@ class Window(QWidget):
                 have.add(p)
 
     def pick(self):
-        self.add(QFileDialog.getOpenFileNames(self, "Añadir archivos", "", f"Vídeo, audio e imagen ({EXTS});;Todos (*)")[0])
+        self.add(QFileDialog.getOpenFileNames(self, "Añadir archivos", "", f"Vídeo, audio, imagen y documentos ({EXTS});;Todos (*)")[0])
 
     def pick_dir(self):
         if d := QFileDialog.getExistingDirectory(self, "Carpeta de destino"):
@@ -275,20 +323,47 @@ class Window(QWidget):
             self.bar.setValue(100)
             return self.bar.setFormat(f"Terminado · {self.ok} de {self.done} correctos")
         src = self.queue[0].data(Qt.ItemDataRole.UserRole)
-        self.info = probe(src)
+        self.info = (0, [], []) if self.fmt in DOCS else probe(src)
         folder = Path(self.out_dir) if self.out_dir else Path(src).parent
         self.dst = unique(folder / f"{Path(src).stem}.{ext(self.fmt)}")
         self.start(src, copy=True)
 
     def start(self, src, copy):
-        self.args = command(src, self.dst, self.fmt, self.info, copy)
         self.queue[0].setText(f"⏳ {Path(src).name}")
         self.proc = QProcess(self)
         self.proc.readyReadStandardOutput.connect(self.progress)
         self.proc.finished.connect(lambda code, status: self.finished(src, code, status))
         self.proc.errorOccurred.connect(lambda e: e == QProcess.ProcessError.FailedToStart
                                         and self.finished(src, -1, QProcess.ExitStatus.CrashExit))
-        self.proc.start(FFMPEG, self.args)
+        if self.fmt not in DOCS:
+            self.args = command(src, self.dst, self.fmt, self.info, copy)
+            return self.proc.start(FFMPEG, self.args)
+        if LO_ZIP.exists() and not (LO_DIR / "listo").exists():  # solo la primera vez
+            self.queue[0].setText(f"⏳ {Path(src).name} · preparando LibreOffice (solo la primera vez, ~1 min)")
+            LO_DIR.mkdir(parents=True, exist_ok=True)
+            self.args = ["descomprimir"]
+            return self.proc.start(TAR, ["-xf", str(LO_ZIP), "-C", str(LO_DIR)])
+        (CACHE / "perfil" / "user").mkdir(parents=True, exist_ok=True)
+        shutil.copy(BASE / "assets" / "registrymodifications.xcu", CACHE / "perfil" / "user")
+        self.tmp = Path(tempfile.mkdtemp(prefix="jtconv-"))
+        self.args = doc_command(src, self.fmt, self.tmp)
+        self.proc.start(SOFFICE, self.args)
+
+    def save_doc(self, src, ok, err):
+        """Recoge el resultado de LibreOffice de su carpeta temporal (y lo pasa a Numbers si toca)."""
+        out = self.tmp / f"{Path(src).stem}.{DOCS[self.fmt].split(':')[0]}"
+        try:
+            if not (ok and out.exists() and out.stat().st_size):
+                return False, f"Este archivo no se puede convertir a {self.fmt}.\n{err}".strip()
+            if self.fmt == "NUMBERS":
+                to_numbers(out, self.dst)
+            else:
+                shutil.move(out, self.dst)
+            return True, ""
+        except Exception as e:  # p. ej. un documento dañado
+            return False, str(e)
+        finally:
+            shutil.rmtree(self.tmp, ignore_errors=True)
 
     def progress(self):
         t = re.findall(r"out_time_us=(\d+)", bytes(self.proc.readAllStandardOutput()).decode(errors="replace"))
@@ -301,15 +376,27 @@ class Window(QWidget):
         self.proc.deleteLater()
         self.proc = None
         ok = code == 0 and status == QProcess.ExitStatus.NormalExit
+        if self.args == ["descomprimir"]:
+            if ok:
+                (LO_DIR / "listo").touch()
+            if ok and not self.cancelled:
+                return self.start(src, copy=True)
+            ok = False
+        elif self.fmt in DOCS:
+            ok, err = self.save_doc(src, ok, err)
         if not ok:
             self.dst.unlink(missing_ok=True)  # borra la salida a medias (siempre es un archivo nuevo)
             if not self.cancelled and "copy" in self.args:
                 return self.start(src, copy=False)  # la copia directa no encajó: recodificar
         mark = "✔" if ok else "■" if self.cancelled else "✖"
-        self.queue[0].setText(f"{mark} {Path(src).name}" + (f"  →  {self.dst.name}" if ok else ""))
-        self.queue[0].setToolTip(str(self.dst) if ok else err[-800:] or "Cancelado")
+        approx = ok and self.fmt in DOCS and Path(src).suffix.lower() in APPROX
+        self.queue[0].setText(f"{mark} {Path(src).name}" + (f"  →  {self.dst.name}" if ok else "")
+                              + (" · aproximado" if approx else ""))
+        self.queue[0].setToolTip((str(self.dst) + ("\nConversión aproximada: el diseño puede variar." if approx else ""))
+                                 if ok else err[-800:] or "Cancelado")
         self.done, self.ok = self.done + 1, self.ok + ok
         self.queue = [] if self.cancelled else self.queue[1:]
+        self.bar.setValue(int(self.done * 100 / (self.done + len(self.queue))))
         self.next()
 
     def closeEvent(self, e):
