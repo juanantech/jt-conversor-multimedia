@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as tmp:
             subprocess.run([FFMPEG, *command(str(src), dst, fmt, info, copy)], check=True, capture_output=True)
             out = probe(str(dst))
             assert out[1] or FORMATS[fmt][1] is None, f"{fmt}: sin vídeo"
-            assert out[2] or fmt == "GIF", f"{fmt}: sin audio"
+            assert out[2] or fmt == "GIF" or FORMATS[fmt][3] is None, f"{fmt}: sin audio"
             print("OK", fmt, "copia" if copy else "recodificado")
 
     app = QApplication([])

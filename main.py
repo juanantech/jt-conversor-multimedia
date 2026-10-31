@@ -1,6 +1,6 @@
 """JT Conversor Multimedia · JUANAN TECH · GPL-3.0-or-later
 
-Convierte vídeo y audio con FFmpeg a la máxima calidad: copia sin pérdida cuando el códec ya encaja
+Convierte vídeo, audio e imagen con FFmpeg a la máxima calidad: copia sin pérdida cuando el códec ya encaja
 en el formato de destino y, si no, recodifica con ajustes visual/auditivamente sin pérdida.
 """
 import re
@@ -29,6 +29,12 @@ AAC, VORBIS = ["-c:a", "aac", "-b:a", "320k"], ["-c:a", "libvorbis", "-q:a", "10
 MP3 = ["-c:a", "libmp3lame", "-b:a", "320k", "-ac", "2"]
 AC3, PCM = ["-c:a", "ac3", "-b:a", "640k"], {"pcm_s16le", "pcm_s24le"}
 MP4A = {"aac", "mp3", "alac", "ac3", "eac3"}
+
+
+def img(codec, *opts):  # formato de imagen: sin audio (aok y aenc = None)
+    return {codec}, ["-c:v", codec, *opts], None, None
+
+
 # formato: (vídeo que se copia, recodificación de vídeo | None = solo audio, audio que se copia, recodificación de audio)
 FORMATS = {
     "MP4": ({"h264", "hevc", "av1"}, H264, MP4A, AAC),
@@ -62,16 +68,35 @@ FORMATS = {
     "AIFF": (None, None, {"pcm_s16be", "pcm_s24be"}, ["-c:a", "pcm_s24be"]),
     "WMA": (None, None, {"wmav1", "wmav2"}, ["-c:a", "wmav2", "-b:a", "192k", "-ac", "2"]),
     "AC3": (None, None, {"ac3"}, AC3),
+    "JPG": img("mjpeg", "-q:v", "2"),
+    "PNG": img("png"),
+    "WEBP": img("libwebp", "-lossless", "1"),
+    "AVIF": img("libaom-av1", "-still-picture", "1", "-crf", "10", "-pix_fmt", "yuv444p"),
+    "BMP": img("bmp"),
+    "TIFF": img("tiff"),
+    "ICO": img("png", "-pix_fmt", "rgba", "-vf", "scale='min(iw,256)':'min(ih,256)':force_original_aspect_ratio=decrease"),
+    "JP2": img("libopenjpeg"),
+    "TGA": img("targa"),
+    **{f.upper(): img(f) for f in ("qoi", "ppm", "pgm", "pbm", "pam", "hdr", "exr", "dpx", "pcx", "sgi")},
+    "RAS": img("sunrast"),
+    "XBM": img("xbm"),
+    "XWD": img("xwd"),
 }
 EXT = {"H.265": "mp4", "ProRes": "mov", "ALAC": "m4a"}  # formatos cuyo botón no coincide con la extensión
 MP4_FAMILY = (".mp4", ".mov", ".m4v", ".m4a", ".3gp")
 EXTS = ("*.mp4 *.mkv *.avi *.mov *.webm *.wmv *.flv *.f4v *.m4v *.mpg *.mpeg *.vob *.ts *.mts *.m2ts *.mxf *.3gp *.ogv "
         "*.asf *.rm *.rmvb *.divx *.gif *.mp3 *.m4a *.m4b *.aac *.wav *.flac *.ogg *.opus *.wma *.aif *.aiff *.ac3 "
-        "*.dts *.amr *.ape *.wv *.mka *.caf *.mp2")
+        "*.dts *.amr *.ape *.wv *.mka *.caf *.mp2 *.jpg *.jpeg *.png *.webp *.avif *.bmp *.tif *.tiff *.ico *.jp2 "
+        "*.tga *.qoi *.ppm *.pgm *.pbm *.pam *.hdr *.exr *.dpx *.pcx *.sgi *.ras *.xbm *.xwd *.heic *.heif *.psd *.dds")
 
 
 def ext(fmt):
     return EXT.get(fmt, fmt.lower())
+
+
+def kind(fmt):
+    v = FORMATS[fmt]
+    return "Audio" if v[1] is None else "Imagen" if v[3] is None else "Vídeo"
 
 
 def probe(src):
@@ -93,6 +118,9 @@ def command(src, dst, fmt, info, copy=True):
     _, vc, ac = info
     mp4 = Path(dst).suffix.lower() in MP4_FAMILY
     args = [*SAFE, "-v", "error", "-n", "-i", "file:" + src, "-progress", "pipe:1", "-nostats"]
+    if aenc is None:  # imagen: el fotograma principal (o la carátula de un audio), sin sonido
+        return args + ["-an", "-frames:v", "1", "-update", "1",
+                       *(["-c:v", "copy"] if copy and vc and vc[0] in vok else venc), "file:" + str(dst)]
     if venc is None:
         ac = ac[:1]
         args += ["-map", "0:a:0"]
@@ -141,7 +169,7 @@ class Window(QWidget):
     def __init__(self):
         super().__init__(objectName="root", windowTitle="JT Conversor Multimedia", acceptDrops=True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # para que se pinte el fondo navy del QSS
-        self.resize(780, 600)
+        self.resize(1000, 640)
         self.out_dir, self.queue, self.proc, self.cancelled = None, [], None, False
         icon = QIcon(str(BASE / "assets" / "icon.png"))
         self.setWindowIcon(icon)
@@ -149,7 +177,7 @@ class Window(QWidget):
         logo = QLabel(pixmap=icon.pixmap(56, 56))
         titles = QVBoxLayout(spacing=0)
         titles.addWidget(QLabel("JT Conversor Multimedia", objectName="title"))
-        titles.addWidget(QLabel("by JUANAN TECH · vídeo y audio a calidad máxima", objectName="muted"))
+        titles.addWidget(QLabel("by JUANAN TECH · vídeo, audio e imagen a calidad máxima", objectName="muted"))
         header = QHBoxLayout()
         header.addWidget(logo)
         header.addLayout(titles, 1)
@@ -165,14 +193,14 @@ class Window(QWidget):
         files.addStretch()
 
         self.group, grid, row = QButtonGroup(self), QGridLayout(), 0
-        for label, video in (("Vídeo", True), ("Audio", False)):
+        for label in ("Vídeo", "Audio", "Imagen"):
             grid.addWidget(QLabel(label, objectName="muted"), row, 0)
-            fmts = [f for f, v in FORMATS.items() if (v[1] is not None) == video]
-            for i, fmt in enumerate(fmts):  # 8 botones por fila
+            fmts = [f for f in FORMATS if kind(f) == label]
+            for i, fmt in enumerate(fmts):  # 11 botones por fila
                 b = QPushButton(fmt, checkable=True)
                 self.group.addButton(b)
-                grid.addWidget(b, row + i // 8, i % 8 + 1)
-            row += (len(fmts) + 7) // 8
+                grid.addWidget(b, row + i // 11, i % 11 + 1)
+            row += (len(fmts) + 10) // 11
         self.group.buttons()[0].setChecked(True)
 
         self.dest = QLabel("Misma carpeta que el original", objectName="muted")
@@ -191,7 +219,7 @@ class Window(QWidget):
         root = QVBoxLayout(self, spacing=12)
         root.setContentsMargins(20, 18, 20, 18)
         root.addLayout(header)
-        root.addWidget(QLabel("Arrastra aquí tus vídeos o audios, o pulsa «Añadir archivos».", objectName="muted"))
+        root.addWidget(QLabel("Arrastra aquí tus vídeos, audios o imágenes, o pulsa «Añadir archivos».", objectName="muted"))
         root.addWidget(self.list, 1)
         for part in (files, grid, dest, bottom):
             root.addLayout(part)
@@ -208,7 +236,7 @@ class Window(QWidget):
                 have.add(p)
 
     def pick(self):
-        self.add(QFileDialog.getOpenFileNames(self, "Añadir archivos", "", f"Vídeo y audio ({EXTS});;Todos (*)")[0])
+        self.add(QFileDialog.getOpenFileNames(self, "Añadir archivos", "", f"Vídeo, audio e imagen ({EXTS});;Todos (*)")[0])
 
     def pick_dir(self):
         if d := QFileDialog.getExistingDirectory(self, "Carpeta de destino"):
