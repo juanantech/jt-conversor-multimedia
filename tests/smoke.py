@@ -27,7 +27,7 @@ FLAT = {  # documentos de prueba en ODF plano: texto, hoja de cálculo y present
              "</draw:page></office:presentation>"),
 }
 
-with tempfile.TemporaryDirectory() as tmp:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:  # numbers-parser no cierra el ZIP que lee
     src = Path(tmp, "-prueba ñ.mkv")  # nombre que empieza por «-»: no debe confundirse con una opción
     subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc2=d=2:s=320x240", "-f", "lavfi",
                     "-i", "sine=d=2", "-c:v", "libx264", "-c:a", "aac", "file:" + str(src)], check=True)
