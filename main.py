@@ -27,21 +27,51 @@ class _Any:  # MKV admite prácticamente cualquier códec
 H264 = ["-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p"]
 AAC, VORBIS = ["-c:a", "aac", "-b:a", "320k"], ["-c:a", "libvorbis", "-q:a", "10"]
 MP3 = ["-c:a", "libmp3lame", "-b:a", "320k", "-ac", "2"]
+AC3, PCM = ["-c:a", "ac3", "-b:a", "640k"], {"pcm_s16le", "pcm_s24le"}
+MP4A = {"aac", "mp3", "alac", "ac3", "eac3"}
 # formato: (vídeo que se copia, recodificación de vídeo | None = solo audio, audio que se copia, recodificación de audio)
 FORMATS = {
-    "MP4": ({"h264", "hevc", "av1"}, H264, {"aac", "mp3", "alac", "ac3", "eac3"}, AAC),
+    "MP4": ({"h264", "hevc", "av1"}, H264, MP4A, AAC),
     "MKV": (_Any(), H264, _Any(), ["-c:a", "flac"]),
     "AVI": ({"mpeg4", "mjpeg"}, ["-c:v", "mpeg4", "-vtag", "xvid", "-q:v", "2"], {"mp3", "ac3"}, MP3),
-    "MOV": ({"h264", "hevc", "prores"}, H264, {"aac", "alac", "pcm_s16le", "pcm_s24le"}, AAC),
+    "MOV": ({"h264", "hevc", "prores"}, H264, {"aac", "alac", *PCM}, AAC),
     "WEBM": ({"vp8", "vp9", "av1"}, ["-c:v", "libvpx-vp9", "-crf", "15", "-b:v", "0", "-row-mt", "1",
                                      "-pix_fmt", "yuv420p"], {"opus", "vorbis"}, VORBIS),
+    "H.265": ({"hevc"}, ["-c:v", "libx265", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-tag:v", "hvc1",
+                         "-x265-params", "log-level=error"], MP4A, AAC),
+    "M4V": ({"h264"}, H264, {"aac", "alac"}, AAC),
+    "GIF": ({"gif"}, ["-vf", "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1"], set(), ["-an"]),
+    "MPG": ({"mpeg2video", "mpeg1video"}, ["-c:v", "mpeg2video", "-q:v", "2", "-pix_fmt", "yuv420p"],
+            {"mp2", "ac3", "mp3"}, AC3),
+    "TS": ({"h264", "hevc", "mpeg2video"}, H264, {"aac", "mp3", "mp2", "ac3", "eac3"}, AAC),
+    "WMV": ({"wmv1", "wmv2", "wmv3", "vc1"}, ["-c:v", "wmv2", "-q:v", "2"], {"wmav1", "wmav2"},
+            ["-c:a", "wmav2", "-b:a", "192k", "-ac", "2"]),
+    "FLV": ({"h264", "flv1"}, H264, {"aac", "mp3"}, AAC),
+    "3GP": ({"h264", "h263", "mpeg4"}, H264, {"aac", "amr_nb", "amr_wb"}, AAC),
+    "OGV": ({"theora"}, ["-c:v", "libtheora", "-q:v", "10"], {"vorbis", "opus", "flac"}, VORBIS),
+    "ProRes": ({"prores"}, ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-vendor", "apl0"],
+               PCM, ["-c:a", "pcm_s24le"]),
     "MP3": (None, None, {"mp3"}, MP3),
     "M4A": (None, None, {"aac", "alac"}, AAC),
-    "WAV": (None, None, {"pcm_s16le", "pcm_s24le"}, ["-c:a", "pcm_s24le"]),
+    "WAV": (None, None, PCM, ["-c:a", "pcm_s24le"]),
     "FLAC": (None, None, {"flac"}, ["-c:a", "flac"]),
     "OGG": (None, None, {"vorbis"}, VORBIS),
+    "OPUS": (None, None, {"opus"}, ["-c:a", "libopus", "-b:a", "256k"]),
+    "AAC": (None, None, {"aac"}, AAC),
+    "ALAC": (None, None, {"alac"}, ["-c:a", "alac"]),
+    "AIFF": (None, None, {"pcm_s16be", "pcm_s24be"}, ["-c:a", "pcm_s24be"]),
+    "WMA": (None, None, {"wmav1", "wmav2"}, ["-c:a", "wmav2", "-b:a", "192k", "-ac", "2"]),
+    "AC3": (None, None, {"ac3"}, AC3),
 }
-EXTS = "*.mp4 *.mkv *.avi *.mov *.webm *.wmv *.flv *.m4v *.mpg *.mpeg *.ts *.mts *.3gp *.mp3 *.m4a *.aac *.wav *.flac *.ogg *.opus *.wma *.aiff"
+EXT = {"H.265": "mp4", "ProRes": "mov", "ALAC": "m4a"}  # formatos cuyo botón no coincide con la extensión
+MP4_FAMILY = (".mp4", ".mov", ".m4v", ".m4a", ".3gp")
+EXTS = ("*.mp4 *.mkv *.avi *.mov *.webm *.wmv *.flv *.f4v *.m4v *.mpg *.mpeg *.vob *.ts *.mts *.m2ts *.mxf *.3gp *.ogv "
+        "*.asf *.rm *.rmvb *.divx *.gif *.mp3 *.m4a *.m4b *.aac *.wav *.flac *.ogg *.opus *.wma *.aif *.aiff *.ac3 "
+        "*.dts *.amr *.ape *.wv *.mka *.caf *.mp2")
+
+
+def ext(fmt):
+    return EXT.get(fmt, fmt.lower())
 
 
 def probe(src):
@@ -61,6 +91,7 @@ def command(src, dst, fmt, info, copy=True):
     """Argumentos de FFmpeg; con copy=True copia sin recodificar los flujos que ya son compatibles."""
     vok, venc, aok, aenc = FORMATS[fmt]
     _, vc, ac = info
+    mp4 = Path(dst).suffix.lower() in MP4_FAMILY
     args = [*SAFE, "-v", "error", "-n", "-i", "file:" + src, "-progress", "pipe:1", "-nostats"]
     if venc is None:
         ac = ac[:1]
@@ -68,11 +99,11 @@ def command(src, dst, fmt, info, copy=True):
     else:
         args += ["-map", "0:V:0?", "-map", "0:a?"]
         if copy and vc and vc[0] in vok:
-            args += ["-c:v", "copy"] + (["-tag:v", "hvc1"] if vc[0] == "hevc" and fmt in ("MP4", "MOV") else [])
+            args += ["-c:v", "copy"] + (["-tag:v", "hvc1"] if vc[0] == "hevc" and mp4 else [])
         else:
             args += venc
     args += ["-c:a", "copy"] if copy and ac and all(c in aok for c in ac) else aenc
-    if fmt in ("MP4", "MOV", "M4A"):
+    if mp4:
         args += ["-movflags", "+faststart"]
     return args + ["file:" + str(dst)]
 
@@ -133,13 +164,15 @@ class Window(QWidget):
             files.addWidget(w)
         files.addStretch()
 
-        self.group, grid = QButtonGroup(self), QGridLayout()
-        for row, (label, video) in enumerate((("Vídeo", True), ("Audio", False))):
+        self.group, grid, row = QButtonGroup(self), QGridLayout(), 0
+        for label, video in (("Vídeo", True), ("Audio", False)):
             grid.addWidget(QLabel(label, objectName="muted"), row, 0)
-            for col, fmt in enumerate(f for f, v in FORMATS.items() if (v[1] is not None) == video):
+            fmts = [f for f, v in FORMATS.items() if (v[1] is not None) == video]
+            for i, fmt in enumerate(fmts):  # 8 botones por fila
                 b = QPushButton(fmt, checkable=True)
                 self.group.addButton(b)
-                grid.addWidget(b, row, col + 1)
+                grid.addWidget(b, row + i // 8, i % 8 + 1)
+            row += (len(fmts) + 7) // 8
         self.group.buttons()[0].setChecked(True)
 
         self.dest = QLabel("Misma carpeta que el original", objectName="muted")
@@ -216,7 +249,7 @@ class Window(QWidget):
         src = self.queue[0].data(Qt.ItemDataRole.UserRole)
         self.info = probe(src)
         folder = Path(self.out_dir) if self.out_dir else Path(src).parent
-        self.dst = unique(folder / f"{Path(src).stem}.{self.fmt.lower()}")
+        self.dst = unique(folder / f"{Path(src).stem}.{ext(self.fmt)}")
         self.start(src, copy=True)
 
     def start(self, src, copy):

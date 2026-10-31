@@ -4,8 +4,17 @@
 
 Conversor de vídeo y audio de **JUANAN TECH**, de código abierto (GPL-3.0) y basado en [FFmpeg](https://ffmpeg.org).
 
-- **Vídeo:** MP4, MKV, AVI, MOV, WEBM · **Audio:** MP3, M4A, WAV, FLAC, OGG (también extrae el audio de un vídeo).
-- **Calidad máxima siempre:** si el códec ya encaja en el formato de destino, copia sin recodificar (0 % de pérdida y casi instantáneo). Si no, recodifica con ajustes visual/auditivamente sin pérdida: H.264 CRF 16, VP9 CRF 15, MPEG-4 q2, AAC y MP3 a 320 kbps, Vorbis q10, FLAC y WAV de 24 bits sin pérdida.
+## Descargar
+
+**[⬇ Descargar JT Conversor Multimedia para Windows (.exe)](https://github.com/juanantech/jt-conversor-multimedia/releases/latest/download/JT.Conversor.Multimedia.exe)**
+
+Es un único archivo portable: no se instala ni necesita nada más. Descárgalo y ábrelo con doble clic. La primera vez, Windows SmartScreen puede avisar porque no está firmado: pulsa «Más información» → «Ejecutar de todas formas».
+
+## Qué hace
+
+- **Vídeo (15):** MP4, MKV, AVI, MOV, WEBM, MP4 H.265, M4V, GIF, MPG, TS, WMV, FLV, 3GP, OGV y ProRes (MOV).
+- **Audio (11):** MP3, M4A, WAV, FLAC, OGG, OPUS, AAC, ALAC, AIFF, WMA y AC3. También extrae el audio de un vídeo.
+- **Calidad máxima siempre:** si el códec ya encaja en el formato de destino, copia sin recodificar (0 % de pérdida y casi instantáneo). Si no, recodifica con ajustes visual/auditivamente sin pérdida: H.264 CRF 16, H.265 CRF 18, VP9 CRF 15, ProRes 422 HQ, MPEG-4/MPEG-2/WMV q2, Theora q10, AAC y MP3 a 320 kbps, AC3 a 640 kbps, Opus a 256 kbps, Vorbis q10, y FLAC, ALAC, WAV y AIFF sin pérdida. Los formatos antiguos (WMV, FLV, 3GP, MPG) llegan hasta donde da su códec.
 - Sin marcas de agua, sin publicidad, sin conexión a internet y sin telemetría.
 
 ## Uso

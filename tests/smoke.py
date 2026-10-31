@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from main import FFMPEG, FORMATS, Window, command, probe  # noqa: E402
+from main import FFMPEG, FORMATS, Window, command, ext, probe  # noqa: E402
 
 with tempfile.TemporaryDirectory() as tmp:
     src = Path(tmp, "-prueba ñ.mkv")  # nombre que empieza por «-»: no debe confundirse con una opción
@@ -20,9 +20,11 @@ with tempfile.TemporaryDirectory() as tmp:
     assert info[1] == ["h264"] and info[2] == ["aac"], info
     for fmt in FORMATS:
         for copy in (True, False):
-            dst = Path(tmp, f"{fmt}-{copy}.{fmt.lower()}")
+            dst = Path(tmp, f"{fmt}-{copy}.{ext(fmt)}")
             subprocess.run([FFMPEG, *command(str(src), dst, fmt, info, copy)], check=True, capture_output=True)
-            assert probe(str(dst))[2], f"{fmt}: sin audio"
+            out = probe(str(dst))
+            assert out[1] or FORMATS[fmt][1] is None, f"{fmt}: sin vídeo"
+            assert out[2] or fmt == "GIF", f"{fmt}: sin audio"
             print("OK", fmt, "copia" if copy else "recodificado")
 
     app = QApplication([])
