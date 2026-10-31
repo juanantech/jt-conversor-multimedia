@@ -1,0 +1,35 @@
+# Compila el .exe en Windows, lo prueba y lo adjunta a la release publicada.
+name: Compilar
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Compilar
+        run: .\build.bat
+        env:
+          PY: python
+      - name: Probar
+        run: .venv\Scripts\python tests\smoke.py
+      - name: SHA-256
+        run: Get-FileHash "dist\JT Conversor Multimedia.exe" | Format-List
+      - name: Adjuntar a la release
+        if: github.event_name == 'release'
+        run: gh release upload "$env:TAG" "dist\JT Conversor Multimedia.exe" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
