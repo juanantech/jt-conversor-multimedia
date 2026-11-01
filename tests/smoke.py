@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import main  # noqa: E402
-from main import DOCS, FFMPEG, FORMATS, Window, command, ext, probe  # noqa: E402
+from main import DOCS, FFMPEG, FORMATS, THEMES, Window, command, ext, probe  # noqa: E402
 
 opened = []  # carpetas que la interfaz abriría al terminar (en CI no se abre el Explorador)
 main.QDesktopServices = SimpleNamespace(openUrl=lambda url: opened.append(Path(url.toLocalFile())))
@@ -50,6 +50,18 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:  # numbers-
     app = QApplication([])
     w = Window()
     w.out_dir = tmp
+
+    w.theme_btn.click()  # tema y accesibilidad: cambian la hoja de estilos y se recuerdan al reabrir
+    assert f"QWidget#root {{ background: {THEMES[w.theme]['bg']}; }}" in app.styleSheet() and Window().theme == w.theme
+    w.big.setChecked(True)
+    w.hc.setChecked(True)
+    assert "font-size: 25px" in app.styleSheet() and "QWidget#root { background: #000000; }" in app.styleSheet()
+    img = w.a11y_btn.icon().pixmap(48, 48).toImage()
+    assert any(img.pixelColor(x, y).alpha() for x in range(img.width()) for y in range(img.height())), "icono vacío"
+    w.big.setChecked(False)
+    w.hc.setChecked(False)
+    w.theme_btn.click()
+    print("OK tema y accesibilidad")
 
     def run(path, fmt):
         """Convierte un archivo con la interfaz, como lo haría el usuario."""

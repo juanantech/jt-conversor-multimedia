@@ -12,10 +12,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QFontDatabase, QIcon
+from PySide6.QtCore import QProcess, QSettings, QSize, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QFontDatabase, QIcon, QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
-                               QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
+                               QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QPushButton,
                                QVBoxLayout, QWidget)
 
 BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -192,31 +193,61 @@ def unique(path):
     return p
 
 
+# Paletas de la web de JUANAN TECH: tema oscuro, tema claro y contraste alto (este último manda sobre el tema)
+THEMES = {
+    "dark": dict(bg="#0F172A", panel="#1E293B", line="#334155", text="#E6EEF7", muted="#94A3B8", dim="#64748B",
+                 sel="#334155", hover="#00C2FF", accent="#00C2FF", accent2="#007EEA", on="#0F172A"),
+    "light": dict(bg="#FFFFFF", panel="#F0F4F9", line="#C8D2E0", text="#0F172A", muted="#475569", dim="#94A3B8",
+                  sel="#D6E4F5", hover="#007EEA", accent="#00C2FF", accent2="#007EEA", on="#0F172A"),
+    "contrast": dict(bg="#000000", panel="#000000", line="#FFFFFF", text="#FFFFFF", muted="#FFFFFF", dim="#AAAAAA",
+                     sel="#333333", hover="#8EEAFF", accent="#8EEAFF", accent2="#8EEAFF", on="#000000"),
+}
 QSS = """
-* { font-family: Montserrat; font-size: 13px; color: #E6EEF7; }
-QWidget#root { background: #0F172A; }
+* { font-family: Montserrat; font-size: %(f)spx; color: %(text)s; }
+QWidget#root { background: %(bg)s; }
 QLabel { background: transparent; }
-QLabel#title { font-size: 22px; font-weight: 600; }
-QLabel#muted { color: #94A3B8; }
-QListWidget { background: #1E293B; border: 2px dashed #334155; border-radius: 12px; padding: 6px; }
+QLabel#title { font-size: %(ft)spx; font-weight: 600; }
+QLabel#muted { color: %(muted)s; }
+QListWidget { background: %(panel)s; border: 2px dashed %(line)s; border-radius: 12px; padding: 6px; }
 QListWidget::item { padding: 6px; border-radius: 6px; }
-QListWidget::item:selected { background: #334155; }
-QPushButton { background: #1E293B; border: 1px solid #334155; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
-QPushButton:hover { border-color: #00C2FF; }
-QPushButton:checked { background: #00C2FF; border-color: #00C2FF; color: #0F172A; }
-QPushButton:disabled { color: #64748B; }
-QPushButton#primary { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #00C2FF, stop:1 #007EEA);
-                      border: none; color: #0F172A; font-size: 15px; padding: 10px 32px; }
-QProgressBar { background: #1E293B; border: none; border-radius: 6px; text-align: center; min-height: 22px; }
-QProgressBar::chunk { border-radius: 6px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00C2FF, stop:1 #007EEA); }
-QToolTip { background: #1E293B; border: 1px solid #00C2FF; }
+QListWidget::item:selected { background: %(sel)s; }
+QPushButton { background: %(panel)s; border: 1px solid %(line)s; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
+QPushButton:hover { border-color: %(hover)s; }
+QPushButton:checked { background: %(accent)s; border-color: %(accent)s; color: %(on)s; }
+QPushButton:disabled { color: %(dim)s; }
+QPushButton#primary { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 %(accent)s, stop:1 %(accent2)s);
+                      border: none; color: %(on)s; font-size: %(fp)spx; padding: 10px 32px; }
+QPushButton#icon { background: transparent; padding: 0; min-width: 42px; min-height: 42px; }
+QPushButton#icon::menu-indicator { width: 0; }
+QProgressBar { background: %(panel)s; border: none; border-radius: 6px; text-align: center; min-height: 22px; }
+QProgressBar::chunk { border-radius: 6px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 %(accent)s, stop:1 %(accent2)s); }
+QToolTip { background: %(panel)s; border: 1px solid %(hover)s; }
+QMenu { background: %(panel)s; border: 1px solid %(line)s; padding: 6px; }
+QMenu::item { padding: 8px 18px 8px 30px; border-radius: 6px; }
+QMenu::item:selected { background: %(sel)s; }
 """
+ICONS = {  # iconos de línea 24×24 de la web: tema (◐) y accesibilidad
+    "tema": '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 0 0 17z" fill="{c}"/>',
+    "accesibilidad": '<circle cx="14" cy="3.5" r="1.75"/><path d="M13 7l-1 7h6l3 6 2-1M12.7 9H18M9 10a6 6 0 1 0 6 9"/>',
+}
+
+
+def svg_icon(name, color):
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" '
+           f'stroke-linecap="round" stroke-linejoin="round">{ICONS[name].format(c=color)}</svg>')
+    pix = QPixmap(48, 48)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    QSvgRenderer(svg.encode()).render(painter)
+    painter.end()
+    pix.setDevicePixelRatio(2)  # nítido en pantallas con escalado
+    return QIcon(pix)
 
 
 class Window(QWidget):
     def __init__(self):
         super().__init__(objectName="root", windowTitle="JT Conversor Multimedia", acceptDrops=True)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # para que se pinte el fondo navy del QSS
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # para que se pinte el fondo del QSS
         self.resize(1000, 700)
         self.out_dir, self.queue, self.proc, self.cancelled = None, [], None, False
         icon = QIcon(str(BASE / "assets" / "icon.png"))
@@ -226,9 +257,26 @@ class Window(QWidget):
         titles = QVBoxLayout(spacing=0)
         titles.addWidget(QLabel("JT Conversor Multimedia", objectName="title"))
         titles.addWidget(QLabel("by JUANAN TECH · vídeo, audio, imagen y documentos a calidad máxima", objectName="muted"))
+        # Tema y accesibilidad, como en la web; se recuerdan en ajustes.ini
+        self.prefs = QSettings(str(CACHE / "ajustes.ini"), QSettings.Format.IniFormat)
+        system = "light" if QApplication.styleHints().colorScheme() == Qt.ColorScheme.Light else "dark"
+        self.theme = t if (t := self.prefs.value("tema")) in ("dark", "light") else system
+        self.theme_btn = QPushButton(objectName="icon", clicked=self.toggle_theme)
+        self.a11y_btn = QPushButton(objectName="icon", toolTip="Accesibilidad: texto ampliado y contraste alto")
+        self.a11y_btn.setAccessibleName("Ajustes de accesibilidad")
+        menu = QMenu(self.a11y_btn)
+        self.big, self.hc = menu.addAction("Texto ampliado"), menu.addAction("Contraste alto")
+        for key, action in (("texto_ampliado", self.big), ("contraste_alto", self.hc)):
+            action.setCheckable(True)
+            action.setChecked(self.prefs.value(key, False, bool))
+            action.toggled.connect(lambda on, key=key: (self.prefs.setValue(key, on), self.restyle()))
+        self.a11y_btn.setMenu(menu)
         header = QHBoxLayout()
         header.addWidget(logo)
         header.addLayout(titles, 1)
+        for b in (self.theme_btn, self.a11y_btn):
+            b.setIconSize(QSize(22, 22))
+            header.addWidget(b)
 
         self.list = QListWidget(selectionMode=QListWidget.SelectionMode.ExtendedSelection)
         self.add_btn = QPushButton("Añadir archivos", clicked=self.pick)
@@ -271,6 +319,25 @@ class Window(QWidget):
         root.addWidget(self.list, 1)
         for part in (files, grid, dest, bottom):
             root.addLayout(part)
+        self.restyle()
+
+    # --- tema y accesibilidad -------------------------------------------------------------
+    def toggle_theme(self):
+        self.theme = "light" if self.theme == "dark" else "dark"
+        self.prefs.setValue("tema", self.theme)
+        self.restyle()
+
+    def restyle(self):
+        pal = THEMES["contrast" if self.hc.isChecked() else self.theme]
+        k = 1.125 if self.big.isChecked() else 1  # texto ampliado: +12,5 %, como en la web
+        QApplication.instance().setStyleSheet(QSS % {**pal, "f": round(13 * k), "ft": round(22 * k), "fp": round(15 * k)})
+        light = self.theme == "light" and not self.hc.isChecked()
+        QApplication.styleHints().setColorScheme(Qt.ColorScheme.Light if light else Qt.ColorScheme.Dark)
+        tip = "Cambiar a tema oscuro" if self.theme == "light" else "Cambiar a tema claro"
+        self.theme_btn.setToolTip(tip)
+        self.theme_btn.setAccessibleName(tip)
+        self.theme_btn.setIcon(svg_icon("tema", pal["text"]))
+        self.a11y_btn.setIcon(svg_icon("accesibilidad", pal["text"]))
 
     # --- archivos -------------------------------------------------------------------------
     def add(self, paths):
@@ -414,10 +481,8 @@ class Window(QWidget):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    app.styleHints().setColorScheme(Qt.ColorScheme.Dark)
     for font in ("Montserrat-Regular.ttf", "Montserrat-SemiBold.ttf"):
         QFontDatabase.addApplicationFont(str(BASE / "assets" / font))
-    app.setStyleSheet(QSS)
     if not Path(FFMPEG).is_file():
         QMessageBox.critical(None, "JT Conversor Multimedia", f"No se encuentra FFmpeg en:\n{FFMPEG}")
         sys.exit(1)

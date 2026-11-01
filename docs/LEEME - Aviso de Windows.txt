@@ -44,9 +44,10 @@ POR QUÉ PUEDES ESTAR TRANQUILO
     funciona sin Internet.
 
 [✓] No toca tu sistema. No se instala ni cambia la configuración de
-    Windows. Solo guarda una copia de LibreOffice en
-    %LOCALAPPDATA%\JT Conversor Multimedia la primera vez que conviertes
-    un documento; puedes borrarla cuando quieras.
+    Windows. Solo usa la carpeta %LOCALAPPDATA%\JT Conversor Multimedia
+    para tus ajustes de tema y accesibilidad y, la primera vez que
+    conviertes un documento, para una copia de LibreOffice; puedes
+    borrarla cuando quieras.
 
 
 CÓMO ABRIRLO
