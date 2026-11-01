@@ -1,4 +1,5 @@
 """Prueba de humo: convierte un clip a todos los formatos con FFmpeg y, con la interfaz, a MP3 y a cada documento."""
+import gc
 import os
 import subprocess
 import sys
@@ -35,7 +36,7 @@ FLAT = {  # documentos de prueba en ODF plano: texto, hoja de cálculo y present
              "</draw:page></office:presentation>"),
 }
 
-with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:  # numbers-parser no cierra el ZIP que lee
+with tempfile.TemporaryDirectory() as tmp:
     src = Path(tmp, "-prueba ñ.mkv")  # nombre que empieza por «-»: no debe confundirse con una opción
     subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc2=d=2:s=320x240", "-f", "lavfi",
                     "-i", "sine=d=2", "-c:v", "libx264", "-c:a", "aac", "file:" + str(src)], check=True)
@@ -91,5 +92,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:  # numbers-
         run(Path(tmp, f"doc.{family}"), fmt)
 
     from numbers_parser import Document
-    assert Document(str(Path(tmp, "doc.numbers"))).sheets[0].tables[0].cell(0, 0).value == 42
+    doc = Document(str(Path(tmp, "doc.numbers")))
+    assert doc.sheets[0].tables[0].cell(0, 0).value == 42
+    del doc
+    gc.collect()  # numbers-parser no cierra el ZIP que lee: se libera antes de borrar la carpeta temporal
     print("OK Numbers legible")
