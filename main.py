@@ -12,11 +12,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QSettings, QSize, Qt, QUrl
+from PySide6.QtCore import QPoint, QProcess, QSettings, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFontDatabase, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
-                               QListWidget, QListWidgetItem, QMenu, QMessageBox, QProgressBar, QPushButton,
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QDialog, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
+                               QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
                                QVBoxLayout, QWidget)
 
 BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -196,11 +196,14 @@ def unique(path):
 # Paletas de la web de JUANAN TECH: tema oscuro, tema claro y contraste alto (este último manda sobre el tema)
 THEMES = {
     "dark": dict(bg="#0F172A", panel="#1E293B", line="#334155", text="#E6EEF7", muted="#94A3B8", dim="#64748B",
-                 sel="#334155", hover="#00C2FF", accent="#00C2FF", accent2="#007EEA", on="#0F172A"),
+                 sel="#334155", hover="#00C2FF", accent="#00C2FF", accent2="#007EEA", on="#0F172A",
+                 ctrl="#758399", icon="#FFFFFF"),
     "light": dict(bg="#FFFFFF", panel="#F0F4F9", line="#C8D2E0", text="#0F172A", muted="#475569", dim="#94A3B8",
-                  sel="#D6E4F5", hover="#007EEA", accent="#00C2FF", accent2="#007EEA", on="#0F172A"),
+                  sel="#D6E4F5", hover="#007EEA", accent="#00C2FF", accent2="#007EEA", on="#0F172A",
+                  ctrl="#64748B", icon="#000000"),
     "contrast": dict(bg="#000000", panel="#000000", line="#FFFFFF", text="#FFFFFF", muted="#FFFFFF", dim="#AAAAAA",
-                     sel="#333333", hover="#8EEAFF", accent="#8EEAFF", accent2="#8EEAFF", on="#000000"),
+                     sel="#333333", hover="#8EEAFF", accent="#8EEAFF", accent2="#8EEAFF", on="#000000",
+                     ctrl="#FFFFFF", icon="#FFFFFF"),
 }
 QSS = """
 * { font-family: Montserrat; font-size: %(f)spx; color: %(text)s; }
@@ -217,15 +220,25 @@ QPushButton:checked { background: %(accent)s; border-color: %(accent)s; color: %
 QPushButton:disabled { color: %(dim)s; }
 QPushButton#primary { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 %(accent)s, stop:1 %(accent2)s);
                       border: none; color: %(on)s; font-size: %(fp)spx; padding: 10px 32px; }
-QPushButton#icon { background: transparent; padding: 0; min-width: 42px; min-height: 42px; }
-QPushButton#icon::menu-indicator { width: 0; }
+QPushButton#icon { background: transparent; border-color: %(ctrl)s; padding: 0; min-width: 44px; max-width: 44px;
+                   min-height: 44px; max-height: 44px; }
+QPushButton#icon:hover { background: %(panel)s; }
+QDialog#a11y { background: %(bg)s; border: 1px solid %(ctrl)s; border-radius: 12px; }
+QDialog#a11y QPushButton { background: %(panel)s; border-color: %(ctrl)s; border-radius: 6px; padding: 8px 12px;
+                           min-height: 26px; font-weight: 400; text-align: left; }
+QDialog#a11y QPushButton:checked { background: %(panel)s; color: %(text)s; border-color: %(hover)s; text-decoration: underline; }
+QDialog#a11y QPushButton#link { background: transparent; border: none; color: %(hover)s; font-weight: 600;
+                                text-decoration: underline; padding: 8px 0; }
+QLabel#info { color: %(muted)s; font-size: %(fs)spx; border-top: 1px solid %(line)s; padding-top: 16px; }
 QProgressBar { background: %(panel)s; border: none; border-radius: 6px; text-align: center; min-height: 22px; }
 QProgressBar::chunk { border-radius: 6px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 %(accent)s, stop:1 %(accent2)s); }
 QToolTip { background: %(panel)s; border: 1px solid %(hover)s; }
-QMenu { background: %(panel)s; border: 1px solid %(line)s; padding: 6px; }
-QMenu::item { padding: 8px 18px 8px 30px; border-radius: 6px; }
-QMenu::item:selected { background: %(sel)s; }
 """
+A11Y = (("texto_ampliado", "Texto ampliado"), ("contraste_alto", "Contraste alto"), ("menos_movimiento", "Menos movimiento"))
+A11Y_INFO = ("Los ajustes se aplican a todo el programa y se recuerdan para la próxima vez. Pulsa otra vez cada opción "
+             "para desactivarla. Puedes usar el teclado para recorrer los controles y Escape para cerrar este panel.")
+EFFECTS = (Qt.UIEffect.UI_AnimateMenu, Qt.UIEffect.UI_FadeMenu, Qt.UIEffect.UI_AnimateCombo,  # «Menos movimiento»
+           Qt.UIEffect.UI_AnimateTooltip, Qt.UIEffect.UI_FadeTooltip, Qt.UIEffect.UI_AnimateToolBox)
 ICONS = {  # iconos de línea 24×24 de la web: tema (◐) y accesibilidad
     "tema": '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 0 0 17z" fill="{c}"/>',
     "accesibilidad": '<circle cx="14" cy="3.5" r="1.75"/><path d="M13 7l-1 7h6l3 6 2-1M12.7 9H18M9 10a6 6 0 1 0 6 9"/>',
@@ -262,15 +275,25 @@ class Window(QWidget):
         system = "light" if QApplication.styleHints().colorScheme() == Qt.ColorScheme.Light else "dark"
         self.theme = t if (t := self.prefs.value("tema")) in ("dark", "light") else system
         self.theme_btn = QPushButton(objectName="icon", clicked=self.toggle_theme)
-        self.a11y_btn = QPushButton(objectName="icon", toolTip="Accesibilidad: texto ampliado y contraste alto")
-        self.a11y_btn.setAccessibleName("Ajustes de accesibilidad")
-        menu = QMenu(self.a11y_btn)
-        self.big, self.hc = menu.addAction("Texto ampliado"), menu.addAction("Contraste alto")
-        for key, action in (("texto_ampliado", self.big), ("contraste_alto", self.hc)):
-            action.setCheckable(True)
-            action.setChecked(self.prefs.value(key, False, bool))
-            action.toggled.connect(lambda on, key=key: (self.prefs.setValue(key, on), self.restyle()))
-        self.a11y_btn.setMenu(menu)
+        self.motion = {e: QApplication.isEffectEnabled(e) for e in EFFECTS}  # animaciones que indica Windows
+        self.a11y_btn = QPushButton(objectName="icon", toolTip="Accesibilidad", accessibleName="Abrir ajustes de accesibilidad")
+        self.panel = QDialog(self, Qt.WindowType.Popup, objectName="a11y", accessibleName="Ajustes de accesibilidad")
+        self.panel.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # esquinas redondeadas
+        self.panel.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)  # pulsar el botón con el panel abierto lo cierra
+        self.panel.setFixedWidth(240)
+        box = QVBoxLayout(self.panel, spacing=10)
+        box.setContentsMargins(20, 20, 20, 20)
+        self.opts = {}
+        for key, label in A11Y:
+            b = self.opts[key] = QPushButton(label, checkable=True, checked=self.prefs.value(key, False, bool))
+            b.toggled.connect(lambda on, key=key: (self.prefs.setValue(key, on), self.restyle()))
+            box.addWidget(b)
+        info = QLabel(A11Y_INFO, objectName="info", wordWrap=True, visible=False)
+        box.addWidget(QPushButton("Accesibilidad", objectName="link", checkable=True,
+                                  toggled=lambda on: (info.setVisible(on), self.panel.adjustSize())))
+        box.addWidget(info)
+        self.a11y_btn.clicked.connect(lambda: (self.panel.move(self.a11y_btn.mapToGlobal(
+            QPoint(self.a11y_btn.width() - self.panel.width(), self.a11y_btn.height() + 8))), self.panel.show()))
         header = QHBoxLayout()
         header.addWidget(logo)
         header.addLayout(titles, 1)
@@ -328,16 +351,20 @@ class Window(QWidget):
         self.restyle()
 
     def restyle(self):
-        pal = THEMES["contrast" if self.hc.isChecked() else self.theme]
-        k = 1.125 if self.big.isChecked() else 1  # texto ampliado: +12,5 %, como en la web
-        QApplication.instance().setStyleSheet(QSS % {**pal, "f": round(13 * k), "ft": round(22 * k), "fp": round(15 * k)})
-        light = self.theme == "light" and not self.hc.isChecked()
+        big, hc, calm = (self.opts[key].isChecked() for key, _ in A11Y)
+        pal = THEMES["contrast" if hc else self.theme]
+        k = 1.125 if big else 1  # texto ampliado: +12,5 %, como en la web
+        QApplication.instance().setStyleSheet(QSS % {**pal, "f": round(13 * k), "ft": round(22 * k), "fp": round(15 * k),
+                                                     "fs": round(11 * k)})
+        for effect, on in self.motion.items():  # menos movimiento: sin animaciones de menús ni de avisos
+            QApplication.setEffectEnabled(effect, on and not calm)
+        light = self.theme == "light" and not hc
         QApplication.styleHints().setColorScheme(Qt.ColorScheme.Light if light else Qt.ColorScheme.Dark)
         tip = "Cambiar a tema oscuro" if self.theme == "light" else "Cambiar a tema claro"
         self.theme_btn.setToolTip(tip)
         self.theme_btn.setAccessibleName(tip)
         self.theme_btn.setIcon(svg_icon("tema", pal["text"]))
-        self.a11y_btn.setIcon(svg_icon("accesibilidad", pal["text"]))
+        self.a11y_btn.setIcon(svg_icon("accesibilidad", pal["icon"]))
 
     # --- archivos -------------------------------------------------------------------------
     def add(self, paths):
