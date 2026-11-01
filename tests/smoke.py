@@ -4,10 +4,13 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+if os.environ.get("GITHUB_ACTIONS"):  # en GitHub, el error queda como anotación, legible sin iniciar sesión
+    sys.excepthook = lambda *exc: print("::error::" + "".join(traceback.format_exception(*exc)).replace("\n", "%0A"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
