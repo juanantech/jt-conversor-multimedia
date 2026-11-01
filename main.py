@@ -12,8 +12,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, Qt
-from PySide6.QtGui import QFontDatabase, QIcon
+from PySide6.QtCore import QProcess, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QFontDatabase, QIcon
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
                                QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
                                QVBoxLayout, QWidget)
@@ -306,7 +306,7 @@ class Window(QWidget):
         self.queue = [self.list.item(i) for i in range(self.list.count())]
         if not self.queue:
             return
-        self.fmt, self.done, self.ok, self.cancelled = self.group.checkedButton().text(), 0, 0, False
+        self.fmt, self.done, self.ok, self.cancelled, self.folders = self.group.checkedButton().text(), 0, 0, False, set()
         self.busy(True)
         self.next()
 
@@ -321,6 +321,8 @@ class Window(QWidget):
         if not self.queue:
             self.busy(False)
             self.bar.setValue(100)
+            for folder in () if self.cancelled else self.folders:  # abre la carpeta con lo convertido
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
             return self.bar.setFormat(f"Terminado · {self.ok} de {self.done} correctos")
         src = self.queue[0].data(Qt.ItemDataRole.UserRole)
         self.info = (0, [], []) if self.fmt in DOCS else probe(src)
@@ -395,6 +397,8 @@ class Window(QWidget):
         self.queue[0].setToolTip((str(self.dst) + ("\nConversión aproximada: el diseño puede variar." if approx else ""))
                                  if ok else err[-800:] or "Cancelado")
         self.done, self.ok = self.done + 1, self.ok + ok
+        if ok:
+            self.folders.add(self.dst.parent)
         self.queue = [] if self.cancelled else self.queue[1:]
         self.bar.setValue(int(self.done * 100 / (self.done + len(self.queue))))
         self.next()

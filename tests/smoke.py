@@ -5,12 +5,17 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+import main  # noqa: E402
 from main import DOCS, FFMPEG, FORMATS, Window, command, ext, probe  # noqa: E402
+
+opened = []  # carpetas que la interfaz abriría al terminar (en CI no se abre el Explorador)
+main.QDesktopServices = SimpleNamespace(openUrl=lambda url: opened.append(Path(url.toLocalFile())))
 
 NS = ('xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
       'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
@@ -57,6 +62,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:  # numbers-
             app.processEvents()
             time.sleep(0.05)
         assert w.ok == 1, (fmt, w.list.item(0).toolTip())
+        assert opened == [Path(tmp)], opened
+        opened.clear()
         print("OK interfaz", fmt)
 
     run(src, "MP3")

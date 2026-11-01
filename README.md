@@ -23,7 +23,7 @@ El ZIP trae una carpeta con el programa, un único `.exe` portable, y `LEEME - A
 
 1. Arrastra archivos a la ventana o pulsa **Añadir archivos**.
 2. Elige el formato y, si quieres, la carpeta de destino (por defecto, la del original).
-3. Pulsa **Convertir**. Pasa el ratón por un archivo para ver la ruta del resultado o el error.
+3. Pulsa **Convertir**. Al terminar se abre la carpeta con los archivos convertidos. Pasa el ratón por un archivo para ver la ruta del resultado o el error.
 
 La primera vez que conviertas un documento, el programa descomprime su LibreOffice (≈1 min) en `%LOCALAPPDATA%\JT Conversor Multimedia` y lo reutiliza después. Para liberar ese espacio, borra esa carpeta.
 
