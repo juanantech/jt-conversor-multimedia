@@ -6,9 +6,9 @@ Conversor de vídeo, audio, imagen y documentos de **JUANAN TECH**, de código a
 
 ## Descargar
 
-**[⬇ Descargar JT Conversor Multimedia para Windows (.exe)](https://github.com/juanantech/jt-conversor-multimedia/releases/latest/download/JT.Conversor.Multimedia.exe)**
+**[⬇ Descargar JT Conversor Multimedia para Windows (.zip)](https://github.com/juanantech/jt-conversor-multimedia/releases/latest/download/JT.Conversor.Multimedia.zip)**
 
-Es un único archivo portable: no se instala ni necesita nada más (ni Microsoft Office, ni LibreOffice, ni las apps de Apple), y funciona sin internet. Descárgalo y ábrelo con doble clic. La primera vez, Windows SmartScreen puede avisar porque no está firmado: pulsa «Más información» → «Ejecutar de todas formas».
+El ZIP trae una carpeta con el programa, un único `.exe` portable, y `LEEME - Aviso de Windows.txt`. No se instala ni necesita nada más (ni Microsoft Office, ni LibreOffice, ni las apps de Apple), y funciona sin internet. Extrae el ZIP y abre `JT Conversor Multimedia.exe` con doble clic. La primera vez, Windows SmartScreen puede avisar porque el programa no está firmado: pulsa «Más información» → «Ejecutar de todas formas». El LÉEME explica por qué sale ese aviso y cómo comprobar que el programa está limpio.
 
 ## Qué hace
 

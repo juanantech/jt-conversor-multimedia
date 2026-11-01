@@ -1,4 +1,4 @@
-# Compila el .exe en Windows, lo prueba y lo adjunta a la release publicada.
+# Compila el .exe en Windows, lo prueba y adjunta a la release un ZIP con el .exe y el LÉEME.
 name: Compilar
 on:
   release:
@@ -24,11 +24,16 @@ jobs:
           PY: python
       - name: Probar
         run: .venv\Scripts\python tests\smoke.py
-      - name: SHA-256
-        run: Get-FileHash "dist\JT Conversor Multimedia.exe" | Format-List
+      - name: Empaquetar
+        run: |
+          $dir = "paquete\JT Conversor Multimedia"
+          New-Item -ItemType Directory $dir | Out-Null
+          Copy-Item "dist\JT Conversor Multimedia.exe", "docs\LEEME - Aviso de Windows.txt" $dir
+          Compress-Archive $dir JT.Conversor.Multimedia.zip -CompressionLevel NoCompression  # el .exe ya va comprimido
+          Get-FileHash "dist\JT Conversor Multimedia.exe", JT.Conversor.Multimedia.zip | Format-List
       - name: Adjuntar a la release
         if: github.event_name == 'release'
-        run: gh release upload "$env:TAG" "dist\JT Conversor Multimedia.exe" --clobber
+        run: gh release upload "$env:TAG" JT.Conversor.Multimedia.zip --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

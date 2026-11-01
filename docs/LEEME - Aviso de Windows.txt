@@ -1,0 +1,87 @@
+﻿JT CONVERSOR MULTIMEDIA · by JUANAN TECH
+LÉEME: el aviso «Windows protegió su PC»
+===========================================================================
+
+EN RESUMEN
+Es un aviso de «programa desconocido», no de virus. Windows lo muestra
+porque la aplicación no lleva una firma digital de pago. JT Conversor
+Multimedia está limpio: su código es público y se compila de forma
+transparente en GitHub.
+
+
+¿POR QUÉ APARECE?
+---------------------------------------------------------------------------
+Windows SmartScreen, el filtro de Microsoft Defender, avisa al abrir
+programas que todavía no conoce. Para decidirlo mira dos cosas: si el
+programa lleva la firma digital de un certificado comercial y cuántas
+personas lo han descargado ya.
+
+JT Conversor Multimedia es un proyecto gratuito y esos certificados cuestan
+dinero cada año, así que se publica sin firmar y Windows lo identifica como
+«Editor desconocido». Por eso el aviso puede volver a salir con cada
+versión nueva.
+
+Fíjate en lo que dice el aviso: «aplicación desconocida». Cuando Windows
+encuentra un virus de verdad, el mensaje es otro (amenaza detectada) y
+Microsoft Defender bloquea o elimina el archivo sin ofrecer «Ejecutar de
+todas formas».
+
+
+POR QUÉ PUEDES ESTAR TRANQUILO
+---------------------------------------------------------------------------
+[✓] Código abierto. Todo el código está publicado en GitHub con licencia
+    GPL-3.0 y cualquiera puede revisarlo.
+
+[✓] Compilación pública. El programa lo genera GitHub automáticamente a
+    partir de ese código, y el registro de cada compilación es público.
+    Nadie lo modifica a mano.
+
+[✓] Componentes oficiales y verificados. FFmpeg y LibreOffice se descargan
+    de sus webs oficiales y se comprueba su huella SHA-256 antes de
+    incluirlos. Las librerías de Python también se instalan verificadas.
+
+[✓] Sin publicidad ni rastreo. No muestra anuncios, no recoge datos y
+    funciona sin Internet.
+
+[✓] No toca tu sistema. No se instala ni cambia la configuración de
+    Windows. Solo guarda una copia de LibreOffice en
+    %LOCALAPPDATA%\JT Conversor Multimedia la primera vez que conviertes
+    un documento; puedes borrarla cuando quieras.
+
+
+CÓMO ABRIRLO
+---------------------------------------------------------------------------
+1. Extrae el ZIP: clic derecho sobre él > «Extraer todo».
+2. Abre la carpeta y haz doble clic en «JT Conversor Multimedia.exe».
+3. Si aparece «Windows protegió su PC», pulsa «Más información» y después
+   «Ejecutar de todas formas».
+4. La primera vez puede tardar un poco más en abrirse mientras Windows lo
+   analiza.
+
+Si no aparece el botón «Ejecutar de todas formas», es probable que tengas
+activado el «Control inteligente de aplicaciones» de Windows 11, que
+bloquea todos los programas sin firma.
+
+
+COMPRUÉBALO TÚ MISMO
+---------------------------------------------------------------------------
+- VirusTotal: sube el ZIP o el programa a https://www.virustotal.com y se
+  analizará con decenas de antivirus a la vez. Si alguno minoritario lo
+  marca, suele tratarse de un falso positivo habitual con los programas
+  empaquetados en Python (PyInstaller).
+
+- Huella SHA-256: en PowerShell, en la carpeta donde descargaste el ZIP,
+  ejecuta
+
+      Get-FileHash .\JT.Conversor.Multimedia.zip
+
+  y compara el resultado con el que muestra GitHub junto al archivo en la
+  página de la versión. Si coinciden, tienes exactamente el archivo
+  publicado.
+
+- Código fuente: https://github.com/juanantech/jt-conversor-multimedia
+  Ahí puedes leer el código, ver cómo se compila y descargar siempre la
+  última versión.
+
+---------------------------------------------------------------------------
+JUANAN TECH · Software libre GPL-3.0
