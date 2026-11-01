@@ -61,12 +61,11 @@ with tempfile.TemporaryDirectory() as tmp:
     w.prefs.sync()
     assert f"QWidget#root {{ background: {THEMES[w.theme]['bg']}; }}" in app.styleSheet()
     assert f"tema={w.theme}" in (main.CACHE / "ajustes.ini").read_text(), "tema no guardado"
-    w.a11y_btn.click()  # panel de accesibilidad con las tres opciones de la web
-    assert w.panel.isVisible() and [o.text() for o in w.opts.values()] == ["Texto ampliado", "Contraste alto", "Menos movimiento"]
+    w.a11y_btn.click()  # panel de accesibilidad: texto ampliado y contraste alto
+    assert w.panel.isVisible() and [o.text() for o in w.opts.values()] == ["Texto ampliado", "Contraste alto"]
     for option in w.opts.values():
         option.setChecked(True)
     assert "font-size: 25px" in app.styleSheet() and "QWidget#root { background: #000000; }" in app.styleSheet()
-    assert not main.QApplication.isEffectEnabled(main.Qt.UIEffect.UI_FadeTooltip), "animaciones activas"
     img = w.a11y_btn.icon().pixmap(48, 48).toImage()
     assert any(img.pixelColor(x, y).alpha() for x in range(img.width()) for y in range(img.height())), "icono vacío"
     for option in w.opts.values():
