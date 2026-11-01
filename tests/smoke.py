@@ -1,4 +1,5 @@
 """Prueba de humo: convierte un clip a todos los formatos con FFmpeg y, con la interfaz, a MP3 y a cada documento."""
+import atexit
 import gc
 import os
 import subprocess
@@ -9,6 +10,7 @@ import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
+atexit.register(print, "OK cierre", flush=True)  # se ejecuta el último: confirma que el cierre de Qt termina
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 if os.environ.get("GITHUB_ACTIONS"):  # en GitHub, el error queda como anotación, legible sin iniciar sesión
     sys.excepthook = lambda *exc: print("::error::" + "".join(traceback.format_exception(*exc)).replace("\n", "%0A"))
@@ -56,7 +58,9 @@ with tempfile.TemporaryDirectory() as tmp:
     w.out_dir = tmp
 
     w.theme_btn.click()  # tema y accesibilidad: cambian la hoja de estilos y se recuerdan al reabrir
-    assert f"QWidget#root {{ background: {THEMES[w.theme]['bg']}; }}" in app.styleSheet() and Window().theme == w.theme
+    w.prefs.sync()
+    assert f"QWidget#root {{ background: {THEMES[w.theme]['bg']}; }}" in app.styleSheet()
+    assert f"tema={w.theme}" in (main.CACHE / "ajustes.ini").read_text(), "tema no guardado"
     w.big.setChecked(True)
     w.hc.setChecked(True)
     assert "font-size: 25px" in app.styleSheet() and "QWidget#root { background: #000000; }" in app.styleSheet()
@@ -97,3 +101,4 @@ with tempfile.TemporaryDirectory() as tmp:
     del doc
     gc.collect()  # numbers-parser no cierra el ZIP que lee: se libera antes de borrar la carpeta temporal
     print("OK Numbers legible")
+print("OK fin", flush=True)
