@@ -29,7 +29,8 @@ if (-not (Test-Path "$PSScriptRoot\ffmpeg\ffmpeg.exe")) {
 }
 
 if (-not (Test-Path "$PSScriptRoot\libreoffice.zip")) {
-    $msi = Get-Verified 'https://download.documentfoundation.org/libreoffice/stable/26.2.6/win/x86_64/LibreOffice_26.2.6_Win_x86-64.msi' `
+    # Archivo permanente de LibreOffice: la carpeta "stable" retira cada version cuando sale la siguiente
+    $msi = Get-Verified 'https://downloadarchive.documentfoundation.org/libreoffice/old/26.2.6.3/win/x86_64/LibreOffice_26.2.6.3_Win_x86-64.msi' `
         'F9877032FD908BEB9C0DDF06DF4AF5C2E85F419C42E14876C4CCE5AAE5FB2660'
     $dir = Join-Path $env:TEMP 'jt-libreoffice'
     Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
