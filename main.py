@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QProcess, QSettings, QSize, Qt, QUrl
+from PySide6.QtCore import QFile, QPoint, QProcess, QSettings, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFontDatabase, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QDialog, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
@@ -103,9 +103,12 @@ PDF_IN = {**dict.fromkeys(("DOCX", "DOC", "ODT", "RTF"), "writer_pdf_import"),
 APPROX = (".pages", ".key", ".numbers", ".pdf")  # orígenes cuya conversión es aproximada
 EXT = {"H.265": "mp4", "ProRes": "mov", "ALAC": "m4a"}  # formatos cuyo botón no coincide con la extensión
 MP4_FAMILY = (".mp4", ".mov", ".m4v", ".m4a", ".3gp")
-EXTS = ("*.mp4 *.mkv *.avi *.mov *.webm *.wmv *.flv *.f4v *.m4v *.mpg *.mpeg *.vob *.ts *.mts *.m2ts *.mxf *.3gp *.ogv "
-        "*.asf *.rm *.rmvb *.divx *.gif *.mp3 *.m4a *.m4b *.aac *.wav *.flac *.ogg *.opus *.wma *.aif *.aiff *.ac3 "
-        "*.dts *.amr *.ape *.wv *.mka *.caf *.mp2 *.jpg *.jpeg *.png *.webp *.avif *.bmp *.tif *.tiff *.ico *.jp2 "
+VIDEO_EXTS = "mp4 mkv avi mov webm wmv flv f4v m4v mpg mpeg vob ts mts m2ts mxf 3gp ogv asf rm rmvb divx".split()
+AUDIO_EXTS = "mp3 m4a m4b aac wav flac ogg opus wma aif aiff ac3 dts amr ape wv mka caf mp2".split()
+OGG = (".opus", ".ogg", ".oga", ".spx")  # guardan las etiquetas en el flujo de audio, no en el archivo
+AUTO = Qt.ItemDataRole.UserRole + 1  # carpeta de origen de los archivos de «Carpeta automática»
+EXTS = " ".join(f"*.{e}" for e in (*VIDEO_EXTS, *AUDIO_EXTS)) + (
+        " *.gif *.jpg *.jpeg *.png *.webp *.avif *.bmp *.tif *.tiff *.ico *.jp2 "
         "*.tga *.qoi *.ppm *.pgm *.pbm *.pam *.hdr *.exr *.dpx *.pcx *.sgi *.ras *.xbm *.xwd *.heic *.heif *.psd *.dds "
         "*.doc *.docx *.docm *.dotx *.odt *.ott *.rtf *.txt *.htm *.html *.pdf *.xls *.xlsx *.xlsm *.ods *.csv *.numbers "
         "*.ppt *.pptx *.pps *.ppsx *.odp *.key *.pages *.wps *.wpd *.fodt *.fods *.fodp")
@@ -120,6 +123,12 @@ def kind(fmt):
         return "Documento"
     v = FORMATS[fmt]
     return "Audio" if v[1] is None else "Imagen" if v[3] is None else "Vídeo"
+
+
+def media_in(root):
+    """Audio y vídeo de una carpeta y sus subcarpetas; lo que ya es MP3 o MP4 se queda como está."""
+    media = {f".{e}" for e in (*VIDEO_EXTS, *AUDIO_EXTS)} - {".mp3", ".mp4"}
+    return sorted(p for p in Path(root).rglob("*") if p.suffix.lower() in media and p.is_file())
 
 
 def doc_command(src, fmt, outdir):
@@ -172,7 +181,7 @@ def command(src, dst, fmt, info, copy=True):
                        *(["-c:v", "copy"] if copy and vc and vc[0] in vok else venc), "file:" + str(dst)]
     if venc is None:
         ac = ac[:1]
-        args += ["-map", "0:a:0"]
+        args += ["-map", "0:a:0"] + (["-map_metadata", "0:s:a:0"] if Path(src).suffix.lower() in OGG else [])
     else:
         args += ["-map", "0:V:0?", "-map", "0:a?"]
         if copy and vc and vc[0] in vok:
@@ -300,11 +309,14 @@ class Window(QWidget):
 
         self.list = QListWidget(selectionMode=QListWidget.SelectionMode.ExtendedSelection)
         self.add_btn = QPushButton("Añadir archivos", clicked=self.pick)
+        self.auto_btn = QPushButton("Carpeta automática…", clicked=self.pick_folder,
+                                    toolTip="Convierte una carpeta y sus subcarpetas: el audio a MP3 y el vídeo a MP4.\n"
+                                            "Las carátulas no se tocan y los originales convertidos van a la Papelera.")
         self.del_btn = QPushButton("Quitar", clicked=lambda: [self.list.takeItem(self.list.row(i))
                                                               for i in self.list.selectedItems()])
         self.clear_btn = QPushButton("Limpiar", clicked=self.list.clear)
         files = QHBoxLayout()
-        for w in (self.add_btn, self.del_btn, self.clear_btn):
+        for w in (self.add_btn, self.auto_btn, self.del_btn, self.clear_btn):
             files.addWidget(w)
         files.addStretch()
 
@@ -335,7 +347,8 @@ class Window(QWidget):
         root = QVBoxLayout(self, spacing=12)
         root.setContentsMargins(20, 18, 20, 18)
         root.addLayout(header)
-        root.addWidget(QLabel("Arrastra aquí tus vídeos, audios, imágenes o documentos, o pulsa «Añadir archivos».", objectName="muted"))
+        root.addWidget(QLabel("Arrastra aquí tus vídeos, audios, imágenes o documentos, o pulsa «Añadir archivos». "
+                              "Para una carpeta entera (audio a MP3 y vídeo a MP4), «Carpeta automática».", objectName="muted"))
         root.addWidget(self.list, 1)
         for part in (files, grid, dest, bottom):
             root.addLayout(part)
@@ -362,18 +375,35 @@ class Window(QWidget):
         self.a11y_btn.setIcon(svg_icon("accesibilidad", pal["icon"]))
 
     # --- archivos -------------------------------------------------------------------------
-    def add(self, paths):
+    def add(self, paths, root=None):
         have = {self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())}
         for p in map(str, paths):
             if Path(p).is_file() and p not in have:
                 item = QListWidgetItem(Path(p).name)
                 item.setData(Qt.ItemDataRole.UserRole, p)
+                item.setData(AUTO, root)
                 item.setToolTip(p)
                 self.list.addItem(item)
                 have.add(p)
 
     def pick(self):
         self.add(QFileDialog.getOpenFileNames(self, "Añadir archivos", "", f"Vídeo, audio, imagen y documentos ({EXTS});;Todos (*)")[0])
+
+    def pick_folder(self):
+        """Carpeta automática: confirma y convierte todo su audio y vídeo, subcarpetas incluidas."""
+        root = QFileDialog.getExistingDirectory(self, "Carpeta automática: audio a MP3 y vídeo a MP4")
+        if not root:
+            return
+        if not (files := media_in(root)):
+            return QMessageBox.information(self, "Carpeta automática", "En esa carpeta no hay audio ni vídeo que convertir.")
+        if QMessageBox.question(self, "Carpeta automática",
+                                f"Se van a convertir {len(files)} archivos de «{Path(root).name}» y sus subcarpetas: "
+                                "el audio a MP3 y el vídeo a MP4, cada uno en su misma carpeta.\n\n"
+                                "Las carátulas y los demás archivos no se tocan. Cuando una conversión sale bien, "
+                                "su original se envía a la Papelera.\n\n¿Empezar?") == QMessageBox.StandardButton.Yes:
+            self.list.clear()
+            self.add(files, root)
+            self.toggle()
 
     def pick_dir(self):
         if d := QFileDialog.getExistingDirectory(self, "Carpeta de destino"):
@@ -395,12 +425,12 @@ class Window(QWidget):
         self.queue = [self.list.item(i) for i in range(self.list.count())]
         if not self.queue:
             return
-        self.fmt, self.done, self.ok, self.cancelled, self.folders = self.group.checkedButton().text(), 0, 0, False, set()
+        self.chosen, self.done, self.ok, self.cancelled, self.folders = self.group.checkedButton().text(), 0, 0, False, set()
         self.busy(True)
         self.next()
 
     def busy(self, on):
-        for w in (self.add_btn, self.del_btn, self.clear_btn, self.dest_btn, *self.group.buttons()):
+        for w in (self.add_btn, self.auto_btn, self.del_btn, self.clear_btn, self.dest_btn, *self.group.buttons()):
             w.setEnabled(not on)
         self.go.setText("Cancelar" if on else "Convertir")
         self.bar.setValue(0)
@@ -413,9 +443,12 @@ class Window(QWidget):
             for folder in () if self.cancelled else self.folders:  # abre la carpeta con lo convertido
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
             return self.bar.setFormat(f"Terminado · {self.ok} de {self.done} correctos")
-        src = self.queue[0].data(Qt.ItemDataRole.UserRole)
-        self.info = (0, [], []) if self.fmt in DOCS else probe(src)
-        folder = Path(self.out_dir) if self.out_dir else Path(src).parent
+        src, root = self.queue[0].data(Qt.ItemDataRole.UserRole), self.queue[0].data(AUTO)
+        self.fmt = self.chosen
+        self.info = probe(src) if root or self.fmt not in DOCS else (0, [], [])
+        if root:  # carpeta automática: el vídeo a MP4 y el audio a MP3, junto al original
+            self.fmt = "MP4" if self.info[1] else "MP3"
+        folder = Path(self.out_dir) if self.out_dir and not root else Path(src).parent
         self.dst = unique(folder / f"{Path(src).stem}.{ext(self.fmt)}")
         self.start(src, copy=True)
 
@@ -479,15 +512,18 @@ class Window(QWidget):
             self.dst.unlink(missing_ok=True)  # borra la salida a medias (siempre es un archivo nuevo)
             if not self.cancelled and "copy" in self.args:
                 return self.start(src, copy=False)  # la copia directa no encajó: recodificar
+        root = self.queue[0].data(AUTO)
+        kept = ok and root and not (self.dst.stat().st_size and QFile(src).moveToTrash())  # original, a la Papelera
         mark = "✔" if ok else "■" if self.cancelled else "✖"
         approx = ok and self.fmt in DOCS and Path(src).suffix.lower() in APPROX
         self.queue[0].setText(f"{mark} {Path(src).name}" + (f"  →  {self.dst.name}" if ok else "")
                               + (" · aproximado" if approx else ""))
-        self.queue[0].setToolTip((str(self.dst) + ("\nConversión aproximada: el diseño puede variar." if approx else ""))
+        self.queue[0].setToolTip((str(self.dst) + ("\nConversión aproximada: el diseño puede variar." if approx else "")
+                                  + ("\nEl original no se pudo enviar a la Papelera: sigue en su sitio." if kept else ""))
                                  if ok else err[-800:] or "Cancelado")
         self.done, self.ok = self.done + 1, self.ok + ok
         if ok:
-            self.folders.add(self.dst.parent)
+            self.folders.add(Path(root) if root else self.dst.parent)
         self.queue = [] if self.cancelled else self.queue[1:]
         self.bar.setValue(int(self.done * 100 / (self.done + len(self.queue))))
         self.next()

@@ -26,6 +26,8 @@ El ZIP trae una carpeta con el programa, un único `.exe` portable, y `LEEME - A
 2. Elige el formato y, si quieres, la carpeta de destino (por defecto, la del original).
 3. Pulsa **Convertir**. Al terminar se abre la carpeta con los archivos convertidos. Pasa el ratón por un archivo para ver la ruta del resultado o el error.
 
+**Carpeta automática:** pulsa **Carpeta automática…** y elige una carpeta (por ejemplo, la de un artista con una subcarpeta por disco). El programa recorre también las subcarpetas y convierte el **audio a MP3** y el **vídeo a MP4**, cada archivo en su misma carpeta y conservando las etiquetas (título, artista…). Las carátulas y los demás archivos no se tocan, y lo que ya es MP3 o MP4 se deja como está. Antes de empezar pide confirmación y, cuando una conversión sale bien, envía su original a la **Papelera** (no lo borra para siempre).
+
 La primera vez que conviertas un documento, el programa descomprime su LibreOffice (≈1 min) en `%LOCALAPPDATA%\JT Conversor Multimedia` y lo reutiliza después. En esa misma carpeta guarda tus ajustes (`ajustes.ini`). Para liberar ese espacio, borra esa carpeta.
 
 ## Compilar

@@ -2,6 +2,7 @@
 import atexit
 import gc
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import main  # noqa: E402
-from main import DOCS, FFMPEG, FORMATS, THEMES, Window, command, ext, probe  # noqa: E402
+from main import DOCS, FFMPEG, FORMATS, THEMES, Window, command, ext, media_in, probe  # noqa: E402
 
 opened = []  # carpetas que la interfaz abriría al terminar (en CI no se abre el Explorador)
 main.QDesktopServices = SimpleNamespace(openUrl=lambda url: opened.append(Path(url.toLocalFile())))
@@ -52,6 +53,13 @@ with tempfile.TemporaryDirectory() as tmp:
             assert out[1] or FORMATS[fmt][1] is None, f"{fmt}: sin vídeo"
             assert out[2] or fmt == "GIF" or FORMATS[fmt][3] is None, f"{fmt}: sin audio"
             print("OK", fmt, "copia" if copy else "recodificado")
+    tema = Path(tmp, "tema.opus")  # Opus guarda las etiquetas en el flujo: deben llegar al MP3
+    subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "sine=d=2", "-c:a", "libopus", "-metadata",
+                    "title=Tema JT", "file:" + str(tema)], check=True)
+    subprocess.run([FFMPEG, *command(str(tema), Path(tmp, "tema.mp3"), "MP3", probe(str(tema)))], check=True)
+    tags = subprocess.run([FFMPEG, "-hide_banner", "-i", str(Path(tmp, "tema.mp3"))], capture_output=True).stderr
+    assert b"Tema JT" in tags, "etiquetas perdidas"
+    print("OK etiquetas de Opus a MP3")
 
     app = QApplication([])
     w = Window()
@@ -74,22 +82,44 @@ with tempfile.TemporaryDirectory() as tmp:
     w.theme_btn.click()
     print("OK tema y accesibilidad")
 
+    def wait():
+        end = time.time() + 600
+        while w.go.text() == "Cancelar" and time.time() < end:
+            app.processEvents()
+            time.sleep(0.05)
+
     def run(path, fmt):
         """Convierte un archivo con la interfaz, como lo haría el usuario."""
         w.list.clear()
         w.add([path])
         next(b for b in w.group.buttons() if b.text() == fmt).setChecked(True)
         w.toggle()
-        end = time.time() + 600
-        while w.go.text() == "Cancelar" and time.time() < end:
-            app.processEvents()
-            time.sleep(0.05)
+        wait()
         assert w.ok == 1, (fmt, w.list.item(0).toolTip())
         assert opened == [Path(tmp)], opened
         opened.clear()
         print("OK interfaz", fmt)
 
     run(src, "MP3")
+
+    # Carpeta automática: audio a MP3 y vídeo a MP4 en su subcarpeta, carátula intacta y originales a la Papelera
+    disco = Path(tmp, "Artista", "Disco 1")
+    disco.mkdir(parents=True)
+    shutil.copy(src, disco / "clip.mkv")
+    shutil.copy(tema, disco / "tema.opus")
+    shutil.copy(tema, disco / "ya convertido.mp3")
+    subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=64x64", "-frames:v", "1",
+                    "file:" + str(disco / "portada.jpg")], check=True)
+    w.list.clear()
+    w.add(media_in(disco.parent), str(disco.parent))
+    w.toggle()
+    wait()
+    assert w.ok == 2, [w.list.item(i).toolTip() for i in range(w.list.count())]
+    left = sorted(p.name for p in disco.iterdir())
+    assert left == ["clip.mp4", "portada.jpg", "tema.mp3", "ya convertido.mp3"], left
+    assert opened == [disco.parent], opened
+    opened.clear()
+    print("OK carpeta automática")
     for e, (kind, body) in FLAT.items():
         Path(tmp, f"doc.{e}").write_text(f'<?xml version="1.0" encoding="UTF-8"?><office:document {NS} '
                                          f'office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.'
