@@ -28,6 +28,8 @@ El ZIP trae una carpeta con el programa, un único `.exe` portable, y `LEEME - A
 
 **Carpeta automática:** pulsa **Carpeta automática…** y elige una carpeta (por ejemplo, la de un artista con una subcarpeta por disco). El programa recorre también las subcarpetas y convierte el **audio a MP3** y el **vídeo a MP4**, cada archivo en su misma carpeta y conservando las etiquetas (título, artista…). Las carátulas y los demás archivos no se tocan, y lo que ya es MP3 o MP4 se deja como está. Antes de empezar pide confirmación y, cuando una conversión sale bien, envía su original a la **Papelera** (no lo borra para siempre).
 
+**CD de audio:** con un lector de CD conectado, al meter un CD de audio aparece el botón **💿 CD de audio (E:) a MP3** (el programa revisa el lector cada 3 segundos). Al pulsarlo, lee las pistas directamente del CD y guarda cada una como **MP3 a 320 kbps** («Pista 01», «Pista 02»…, con número de pista) en una carpeta nueva dentro de **Música**, o en la carpeta elegida en «Guardar en». No necesita Internet ni programas extra; como un CD de audio no trae los nombres de las canciones, se guardan numeradas. Es una lectura normal, no «segura»: un disco muy rayado puede dar error en alguna pista.
+
 La primera vez que conviertas un documento, el programa descomprime su LibreOffice (≈1 min) en `%LOCALAPPDATA%\JT Conversor Multimedia` y lo reutiliza después. En esa misma carpeta guarda tus ajustes (`ajustes.ini`). Para liberar ese espacio, borra esa carpeta.
 
 ## Compilar

@@ -4,15 +4,18 @@ Convierte vídeo, audio e imagen con FFmpeg a la máxima calidad: copia sin pér
 en el formato de destino y, si no, recodifica con ajustes visual/auditivamente sin pérdida.
 Los documentos se convierten con un LibreOffice integrado (sin instalar), que se descomprime la primera vez.
 """
+import ctypes
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
-from PySide6.QtCore import QFile, QPoint, QProcess, QSettings, QSize, Qt, QUrl
+from PySide6.QtCore import QFile, QPoint, QProcess, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFontDatabase, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QDialog, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
@@ -129,6 +132,68 @@ def media_in(root):
     """Audio y vídeo de una carpeta y sus subcarpetas; lo que ya es MP3 o MP4 se queda como está."""
     media = {f".{e}" for e in (*VIDEO_EXTS, *AUDIO_EXTS)} - {".mp3", ".mp4"}
     return sorted(p for p in Path(root).rglob("*") if p.suffix.lower() in media and p.is_file())
+
+
+class RawRead(ctypes.Structure):  # RAW_READ_INFO de Windows
+    _fields_ = [("offset", ctypes.c_longlong), ("count", ctypes.c_ulong), ("mode", ctypes.c_int)]
+
+
+def toc_tracks(toc):
+    """Pistas de audio de la tabla de contenidos de un CD: [(número, primer sector, sectores)]."""
+    entries = [toc[i:i + 8] for i in range(4, len(toc) - 7, 8)]  # la última entrada es el final del disco
+    lba = lambda e: (e[5] * 60 + e[6]) * 75 + e[7] - 150  # minuto:segundo:sector a número de sector
+    return [(e[2], lba(e), lba(n) - lba(e) - (11400 if n[1] & 4 and n[2] != 0xAA else 0))  # CD Extra: hueco ante los datos
+            for e, n in zip(entries, entries[1:]) if not e[1] & 4]  # control 4: pista de datos
+
+
+class AudioCD:
+    """Lee un CD de audio en Windows directamente del lector, sin programas extra ni conexión."""
+
+    def __init__(self, drive):
+        self.k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.k32.CreateFileW.restype = ctypes.c_void_p
+        self.k32.DeviceIoControl.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong,
+                                             ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong), ctypes.c_void_p]
+        self.k32.CloseHandle.argtypes = [ctypes.c_void_p]
+        self.handle = self.k32.CreateFileW(rf"\\.\{drive}:", 0x80000000, 3, None, 3, 0, None)  # solo lectura
+        if self.handle in (None, ctypes.c_void_p(-1).value):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def ioctl(self, code, request, size):
+        out, got = ctypes.create_string_buffer(size), ctypes.c_ulong()
+        if not self.k32.DeviceIoControl(self.handle, code, request and ctypes.byref(request),
+                                        ctypes.sizeof(request) if request else 0, out, size, ctypes.byref(got), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return out.raw[:got.value]
+
+    def tracks(self):
+        return toc_tracks(self.ioctl(0x24000, None, 804))  # IOCTL_CDROM_READ_TOC
+
+    def read(self, lba, count):
+        """Sonido PCM (16 bits, estéreo, 44,1 kHz); un CD rayado a veces se lee al reintentar."""
+        for attempt in range(3):
+            try:
+                return self.ioctl(0x2403E, RawRead(lba * 2048, count, 2), count * 2352)  # IOCTL_CDROM_RAW_READ, CDDA
+            except OSError:
+                if attempt == 2:
+                    raise
+
+    def close(self):
+        self.k32.CloseHandle(self.handle)
+
+
+def audio_cd():
+    """Letra del lector que tiene metido un CD de audio, o None."""
+    if sys.platform == "win32":
+        k32 = ctypes.windll.kernel32
+        for i in range(26):
+            root = f"{chr(65 + i)}:\\"
+            if k32.GetLogicalDrives() >> i & 1 and k32.GetDriveTypeW(root) == 5:  # 5: lector de CD/DVD
+                try:
+                    if any(Path(root).glob("*.cda")):  # Windows muestra cada pista de audio como un .cda
+                        return root[0]
+                except OSError:  # lector sin disco
+                    pass
 
 
 def doc_command(src, fmt, outdir):
@@ -265,11 +330,13 @@ def svg_icon(name, color):
 
 
 class Window(QWidget):
+    cd_step = Signal(int, int, str, str)  # pista (-1: fin), porcentaje, texto y detalle, desde el hilo del CD
+
     def __init__(self):
         super().__init__(objectName="root", windowTitle="JT Conversor Multimedia", acceptDrops=True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # para que se pinte el fondo del QSS
         self.resize(1000, 700)
-        self.out_dir, self.queue, self.proc, self.cancelled = None, [], None, False
+        self.out_dir, self.queue, self.proc, self.cancelled, self.ripping, self.cd = None, [], None, False, None, None
         icon = QIcon(str(BASE / "assets" / "icon.png"))
         self.setWindowIcon(icon)
 
@@ -315,8 +382,13 @@ class Window(QWidget):
         self.del_btn = QPushButton("Quitar", clicked=lambda: [self.list.takeItem(self.list.row(i))
                                                               for i in self.list.selectedItems()])
         self.clear_btn = QPushButton("Limpiar", clicked=self.list.clear)
+        self.cd_btn = QPushButton(visible=False, clicked=self.pick_cd,
+                                  toolTip="Lee el CD y guarda cada pista como MP3 a 320 kbps («Pista 01», «Pista 02»…)\n"
+                                          "en una carpeta nueva de Música, o en la de «Guardar en». No necesita Internet.")
+        self.cd_step.connect(self.cd_update)
+        QTimer(self, interval=3000, timeout=self.check_cd).start()  # al meter un CD de audio aparece su botón
         files = QHBoxLayout()
-        for w in (self.add_btn, self.auto_btn, self.del_btn, self.clear_btn):
+        for w in (self.add_btn, self.auto_btn, self.cd_btn, self.del_btn, self.clear_btn):
             files.addWidget(w)
         files.addStretch()
 
@@ -405,6 +477,84 @@ class Window(QWidget):
             self.add(files, root)
             self.toggle()
 
+    def check_cd(self):
+        self.cd = audio_cd()
+        self.cd_btn.setVisible(bool(self.cd))
+        self.cd_btn.setText(f"💿 CD de audio ({self.cd}:) a MP3")
+
+    def pick_cd(self):
+        """Pasa a MP3 todas las pistas del CD de audio, en una carpeta nueva."""
+        try:
+            cd = AudioCD(self.cd)
+            tracks = cd.tracks()
+        except OSError as e:
+            return QMessageBox.warning(self, "CD de audio", f"No se puede leer el CD.\n{e}")
+        if not tracks:
+            cd.close()
+            return QMessageBox.information(self, "CD de audio", "Este CD no tiene pistas de audio.")
+        base = self.out_dir or QStandardPaths.writableLocation(QStandardPaths.StandardLocation.MusicLocation)
+        self.rip(cd, tracks, unique(Path(base) / time.strftime("CD de audio %Y-%m-%d %Hh%M")))
+
+    def rip(self, cd, tracks, dest):
+        self.list.clear()
+        for n, _, _ in tracks:
+            self.list.addItem(f"Pista {n:02}")
+        dest.mkdir(parents=True, exist_ok=True)
+        self.cancelled, self.ripping = False, threading.Thread(target=self.rip_tracks, args=(cd, tracks, dest))
+        self.busy(True)
+        self.ripping.start()
+
+    def rip_tracks(self, cd, tracks, dest):
+        """Hilo del CD: cada pista pasa por FFmpeg a MP3 según se va leyendo (sin archivos intermedios)."""
+        ok, done, total = 0, 0, sum(count for _, _, count in tracks)
+        for row, (n, first, count) in enumerate(tracks):
+            if self.cancelled:
+                break
+            dst = dest / f"Pista {n:02}.mp3"
+            ff = subprocess.Popen([FFMPEG, "-hide_banner", "-v", "error", "-protocol_whitelist", "file,pipe", "-f", "s16le",
+                                   "-ar", "44100", "-ac", "2", "-i", "pipe:0", *MP3, "-metadata", f"title=Pista {n:02}",
+                                   "-metadata", f"track={n}/{len(tracks)}", "-metadata", f"album={dest.name}", "-n",
+                                   "file:" + str(dst)], stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            err = ""
+            try:
+                for pos in range(0, count, 20):  # 20 sectores por lectura (~0,27 s de sonido)
+                    if self.cancelled:
+                        break
+                    ff.stdin.write(cd.read(first + pos, min(20, count - pos)))
+                    if pos % 1500 == 0:
+                        self.cd_step.emit(row, (done + pos) * 100 // total, f"⏳ Pista {n:02} · {pos * 100 // count} %", "")
+            except OSError as e:  # disco rayado o sacado del lector
+                err = f"No se pudo leer esta pista del CD.\n{e}"
+            stderr = ff.communicate()[1].decode("utf-8", "replace").strip()  # cierra la entrada: FFmpeg termina
+            good = ff.returncode == 0 and not err and not self.cancelled
+            err = err or stderr
+            if not good:
+                dst.unlink(missing_ok=True)
+            ok, done = ok + good, done + count
+            self.cd_step.emit(row, done * 100 // total, ("✔" if good else "■" if self.cancelled else "✖")
+                              + f" Pista {n:02}" + (f"  →  {dst.name}" if good else ""), str(dst) if good else err or "Cancelado")
+        cd.close()
+        if not ok:
+            try:
+                dest.rmdir()  # la carpeta nueva quedó vacía
+            except OSError:
+                pass
+        self.cd_step.emit(-1, 100, f"Terminado · {ok} de {len(tracks)} pistas", str(dest) if ok else "")
+
+    def cd_update(self, row, pct, text, tip):
+        if row >= 0:
+            self.list.item(row).setText(text)
+            self.list.item(row).setToolTip(tip)
+            return self.bar.setValue(pct)
+        self.ripping.join()
+        self.ripping = None
+        self.busy(False)
+        self.bar.setValue(100)
+        self.bar.setFormat(text)
+        if tip and not self.cancelled:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(tip))  # abre la carpeta del CD
+
     def pick_dir(self):
         if d := QFileDialog.getExistingDirectory(self, "Carpeta de destino"):
             self.out_dir = d
@@ -419,6 +569,9 @@ class Window(QWidget):
 
     # --- conversión -----------------------------------------------------------------------
     def toggle(self):
+        if self.ripping:
+            self.cancelled = True
+            return
         if self.proc:
             self.cancelled = True
             return self.proc.kill()
@@ -430,7 +583,7 @@ class Window(QWidget):
         self.next()
 
     def busy(self, on):
-        for w in (self.add_btn, self.auto_btn, self.del_btn, self.clear_btn, self.dest_btn, *self.group.buttons()):
+        for w in (self.add_btn, self.auto_btn, self.cd_btn, self.del_btn, self.clear_btn, self.dest_btn, *self.group.buttons()):
             w.setEnabled(not on)
         self.go.setText("Cancelar" if on else "Convertir")
         self.bar.setValue(0)
@@ -529,6 +682,9 @@ class Window(QWidget):
         self.next()
 
     def closeEvent(self, e):
+        if self.ripping:
+            self.cancelled = True
+            self.ripping.join(10)
         if self.proc:
             self.cancelled = True
             self.proc.kill()
@@ -539,6 +695,8 @@ class Window(QWidget):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    if sys.platform == "win32":
+        ctypes.windll.kernel32.SetErrorMode(1)  # un lector vacío no muestra avisos de «inserte un disco»
     for font in ("Montserrat-Regular.ttf", "Montserrat-SemiBold.ttf"):
         QFontDatabase.addApplicationFont(str(BASE / "assets" / font))
     if not Path(FFMPEG).is_file():

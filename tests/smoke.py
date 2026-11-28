@@ -1,5 +1,6 @@
 """Prueba de humo: convierte un clip a todos los formatos con FFmpeg y, con la interfaz, a MP3 y a cada documento."""
 import atexit
+import ctypes
 import gc
 import os
 import shutil
@@ -19,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import main  # noqa: E402
-from main import DOCS, FFMPEG, FORMATS, THEMES, Window, command, ext, media_in, probe  # noqa: E402
+from main import (DOCS, FFMPEG, FORMATS, THEMES, RawRead, Window, audio_cd, command, ext, media_in,  # noqa: E402
+                  probe, toc_tracks)
 
 opened = []  # carpetas que la interfaz abriría al terminar (en CI no se abre el Explorador)
 main.QDesktopServices = SimpleNamespace(openUrl=lambda url: opened.append(Path(url.toLocalFile())))
@@ -120,6 +122,29 @@ with tempfile.TemporaryDirectory() as tmp:
     assert opened == [disco.parent], opened
     opened.clear()
     print("OK carpeta automática")
+
+    # CD de audio: tabla de contenidos (con una pista de datos de CD Extra) y lectura a MP3 con un CD simulado
+    e = lambda control, n, m, s: bytes([0, 0x10 | control, n, 0, 0, m, s, 0])  # noqa: E731
+    toc = bytes([0, 34, 1, 3]) + e(0, 1, 0, 2) + e(0, 2, 3, 0) + e(4, 3, 10, 0) + e(0, 0xAA, 20, 0)
+    assert toc_tracks(toc) == [(1, 0, 13350), (2, 13350, 20100)], toc_tracks(toc)
+    assert ctypes.sizeof(RawRead) == 16 and audio_cd() is None  # GitHub no tiene lector de CD
+
+    class FakeCD:  # dos pistas de silencio de 1 s y 0,5 s
+        tracks = [(1, 0, 75), (2, 75, 38)]
+        read = staticmethod(lambda lba, count: bytes(2352 * count))
+        close = staticmethod(lambda: None)
+
+    w.rip(FakeCD, FakeCD.tracks, Path(tmp, "CD"))
+    end = time.time() + 120
+    while w.ripping and time.time() < end:
+        app.processEvents()
+        time.sleep(0.05)
+    assert sorted(p.name for p in Path(tmp, "CD").iterdir()) == ["Pista 01.mp3", "Pista 02.mp3"], w.list.item(0).toolTip()
+    tags = subprocess.run([FFMPEG, "-hide_banner", "-i", str(Path(tmp, "CD", "Pista 02.mp3"))], capture_output=True).stderr
+    assert b"2/2" in tags and b"Pista 02" in tags, tags
+    assert opened == [Path(tmp, "CD")], opened
+    opened.clear()
+    print("OK CD de audio")
     for e, (kind, body) in FLAT.items():
         Path(tmp, f"doc.{e}").write_text(f'<?xml version="1.0" encoding="UTF-8"?><office:document {NS} '
                                          f'office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.'
